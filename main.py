@@ -1,4 +1,4 @@
-# Cat's Discord Bot - Compatible con TODAS las versiones de discord.py
+# Cat's Discord Bot - SOLO ROL AUTORIZADO puede usar comandos
 import discord
 from google import genai
 from google.genai import types
@@ -11,16 +11,11 @@ import hashlib
 # Cargar variables de entorno
 load_dotenv()
 
-# Configuración del cliente (sin intents para compatibilidad)
+# Configuración del cliente
 client = discord.Client()
 
-# ✨ ROLES AUTORIZADOS PARA USAR LOS COMANDOS ✨
-AUTHORIZED_ROLES = [
-    1427705211186839672,
-    1329516197175103651,
-    1330597790660694047,
-    1330356239103688835
-]
+# 🔐 ÚNICO ROL AUTORIZADO - SOLO ESTE ROL PUEDE USAR COMANDOS
+AUTHORIZED_ROLE_ID = 1427705211186839672
 
 # Configurar Google AI con Gemma
 def setup_gemma():
@@ -37,35 +32,27 @@ except Exception as e:
     print(f"Error al configurar Gemma: {e}")
     gemma_client = None
 
-# Historial de consejos generados (para evitar repeticiones)
+# Historial de consejos generados
 consejos_history = {"trader": [], "middleman": []}
 
-# ✅ FUNCIÓN PARA VERIFICAR SI EL USUARIO TIENE ROLES AUTORIZADOS
+# ✅ VERIFICAR SI EL USUARIO TIENE EL ROL AUTORIZADO
 def has_authorized_role(member):
-    """Verifica si el miembro tiene alguno de los roles autorizados"""
+    """Verifica si el miembro tiene el rol autorizado"""
     if member is None:
         return False
     
     member_role_ids = [role.id for role in member.roles]
-    
-    for role_id in AUTHORIZED_ROLES:
-        if role_id in member_role_ids:
-            return True
-    
-    return False
+    return AUTHORIZED_ROLE_ID in member_role_ids
 
-# Función para generar consejos ÚNICOS Y DIFERENTES cada vez
 def generate_advice(user_type):
-    """Genera consejos ÚNICOS usando Gemma 3 4B con máxima variabilidad"""
+    """Genera consejos ÚNICOS usando Gemma 3 4B"""
     if not gemma_client:
         return "⚠️ El servicio de IA no está disponible en este momento."
 
-    # Crear semilla única usando timestamp + random + hash
     timestamp = int(time.time() * 1000)
     random_num = random.randint(10000, 99999)
     unique_seed = hashlib.md5(f"{timestamp}{random_num}".encode()).hexdigest()[:8]
 
-    # Variaciones de enfoque para MAYOR DIVERSIDAD
     enfoques_trader = [
         "seguridad en la verificación de middlemans",
         "protección contra scams comunes",
@@ -133,7 +120,7 @@ Texto simple, sin markdown."""
             contents=prompts[user_type],
             config=types.GenerateContentConfig(
                 temperature=2.0,
-                top_p=0.98,
+                top_p=1.23,
                 top_k=64,
                 max_output_tokens=150,
             )
@@ -147,8 +134,6 @@ Texto simple, sin markdown."""
         consejos_history[user_type].append(advice[:50])
         if len(consejos_history[user_type]) > 5:
             consejos_history[user_type].pop(0)
-
-        print(f"✅ Consejo generado con enfoque: {enfoque}, estilo: {estilo}")
 
         return advice
 
@@ -206,7 +191,6 @@ Texto simple, sin markdown."""
 
         return consejo
 
-# Función para crear embeds bonitos
 def create_welcome_embed(member, advice_trader, advice_middleman):
     """Crea un embed profesional y atractivo"""
     colors = [0x00FF00, 0x00FFFF, 0xFF00FF, 0xFFD700, 0xFF6347, 0x9B59B6, 0xE74C3C, 0x3498DB, 0x1ABC9C, 0xF39C12]
@@ -217,7 +201,6 @@ def create_welcome_embed(member, advice_trader, advice_middleman):
         color=random.choice(colors)
     )
 
-    # Usar avatar_url para compatibilidad con versiones antiguas
     try:
         embed.set_thumbnail(url=member.display_avatar.url)
     except:
@@ -270,60 +253,59 @@ def create_removed_embed(member):
 
 @client.event
 async def on_ready():
-    print(f'✅ Selfbot conectado como {client.user}')
+    print(f'✅ Bot conectado como {client.user}')
     print(f'ID: {client.user.id}')
     print('------')
-    print(f'🔐 Roles autorizados: {len(AUTHORIZED_ROLES)} configurados')
-    for role_id in AUTHORIZED_ROLES:
-        print(f'   - {role_id}')
+    print(f'🔐 ROL AUTORIZADO: {AUTHORIZED_ROLE_ID}')
     if gemma_client:
-        print('🤖 IA Gemma 3 4B activada con MÁXIMA variabilidad')
-        print('🎲 Sistema anti-repetición activado')
+        print('🤖 IA Gemma 3 4B activada')
     else:
         print('⚠️ IA no disponible')
-    print('📡 Bot listo para recibir comandos')
+    print('📡 Bot listo - SOLO usuarios con rol autorizado pueden usar comandos')
 
 @client.event
 async def on_message(message):
-    # 🔍 DEBUG: Imprimir TODOS los mensajes para diagnóstico
-    print(f"📨 Mensaje recibido: '{message.content}' de {message.author}")
-    
-    # Ignorar mensajes de otros usuarios
-    if message.author != client.user:
-        print(f"   ↳ Ignorado: no es del selfbot")
+    # Ignorar mensajes de bots
+    if message.author.bot:
         return
-
-    print(f"   ↳ Es del selfbot, procesando...")
-
-    # ✅ VERIFICAR ROLES ANTES DE PROCESAR COMANDOS
-    if message.guild:
-        author_member = message.guild.get_member(message.author.id)
-        
-        if not has_authorized_role(author_member):
-            if message.content.startswith(('!add', '!quit', '!help_bot')):
-                await message.channel.send("❌ No tienes permiso para usar este comando. Necesitas uno de los roles autorizados.")
-                print(f"⚠️ Usuario {message.author} intentó usar comando sin rol autorizado")
-            return
-
-    # Sistema de comandos manual
+    
+    # Solo procesar si el mensaje empieza con !
+    if not message.content.startswith('!'):
+        return
+    
+    # Solo en servidores (no DMs)
+    if not message.guild:
+        return
+    
+    # 🔐 VERIFICACIÓN DE ROL - ÚNICO PUNTO DE CONTROL
+    member = message.guild.get_member(message.author.id)
+    
+    if not member:
+        return
+    
+    # Verificar si tiene el rol autorizado
+    if not has_authorized_role(member):
+        print(f"❌ Usuario {message.author} sin rol autorizado intentó usar comando")
+        await message.channel.send("❌ No tienes permiso para usar este comando. Necesitas el rol autorizado.")
+        return
+    
+    # ✅ USUARIO AUTORIZADO - Procesar comandos
+    print(f"✅ Usuario autorizado: {message.author} ejecutando: {message.content}")
+    
+    # Comandos
     if message.content.startswith('!add'):
-        print("✅ Comando !add detectado")
         await handle_add(message)
     elif message.content.startswith('!quit'):
-        print("✅ Comando !quit detectado")
         await handle_quit(message)
     elif message.content.startswith('!help_bot'):
-        print("✅ Comando !help_bot detectado")
         await handle_help(message)
-    else:
-        print(f"   ↳ No es un comando reconocido")
 
 async def handle_add(message):
-    """Añade un usuario al canal con permisos de lectura y escritura"""
+    """Añade un usuario al canal con permisos"""
     parts = message.content.split()
     
     if len(parts) < 2:
-        await message.channel.send("❌ Por favor menciona un usuario o proporciona su ID\nUso: `!add @usuario` o `!add ID_USUARIO`")
+        await message.channel.send("❌ Uso: `!add @usuario` o `!add ID_USUARIO`")
         return
 
     member = None
@@ -335,15 +317,15 @@ async def handle_add(message):
             user_id = int(parts[1])
             member = await message.guild.fetch_member(user_id)
         except:
-            await message.channel.send("❌ No se pudo encontrar el usuario con ese ID")
+            await message.channel.send("❌ No se pudo encontrar el usuario")
             return
 
     if member is None:
-        await message.channel.send("❌ No se pudo encontrar el usuario")
+        await message.channel.send("❌ Usuario no encontrado")
         return
 
     if member.bot:
-        await message.channel.send("❌ No puedo añadir bots al canal")
+        await message.channel.send("❌ No puedo añadir bots")
         return
 
     try:
@@ -355,31 +337,25 @@ async def handle_add(message):
 
         await message.channel.set_permissions(member, overwrite=overwrites)
 
-        print("🤖 Generando consejos ÚNICOS con IA...")
+        print("🤖 Generando consejos con IA...")
         advice_trader = generate_advice("trader")
         advice_middleman = generate_advice("middleman")
 
-        print(f"📊 Trader: {advice_trader[:80]}...")
-        print(f"🤝 Middleman: {advice_middleman[:80]}...")
-
         embed = create_welcome_embed(member, advice_trader, advice_middleman)
 
-        mensaje = await message.channel.send(embed=embed)
-        print(f"✅ Embed enviado - ID: {mensaje.id}")
-        print(f"✅ {member.name} añadido al canal {message.channel.name} por {message.author.name}")
+        await message.channel.send(embed=embed)
+        print(f"✅ {member.name} añadido al canal por {message.author.name}")
 
     except Exception as e:
-        await message.channel.send(f"❌ Error al añadir usuario: {str(e)}")
-        print(f"Error completo: {e}")
-        import traceback
-        traceback.print_exc()
+        await message.channel.send(f"❌ Error: {str(e)}")
+        print(f"Error: {e}")
 
 async def handle_quit(message):
     """Remueve a un usuario del canal"""
     parts = message.content.split()
     
     if len(parts) < 2:
-        await message.channel.send("❌ Por favor menciona un usuario o proporciona su ID\nUso: `!quit @usuario` o `!quit ID_USUARIO`")
+        await message.channel.send("❌ Uso: `!quit @usuario` o `!quit ID_USUARIO`")
         return
 
     member = None
@@ -391,11 +367,11 @@ async def handle_quit(message):
             user_id = int(parts[1])
             member = await message.guild.fetch_member(user_id)
         except:
-            await message.channel.send("❌ No se pudo encontrar el usuario con ese ID")
+            await message.channel.send("❌ No se pudo encontrar el usuario")
             return
 
     if member is None:
-        await message.channel.send("❌ No se pudo encontrar el usuario")
+        await message.channel.send("❌ Usuario no encontrado")
         return
 
     try:
@@ -408,56 +384,48 @@ async def handle_quit(message):
         embed = create_removed_embed(member)
         await message.channel.send(embed=embed)
 
-        print(f"✅ {member.name} removido del canal {message.channel.name} por {message.author.name}")
+        print(f"✅ {member.name} removido por {message.author.name}")
 
     except Exception as e:
-        await message.channel.send(f"❌ Error al remover usuario: {str(e)}")
+        await message.channel.send(f"❌ Error: {str(e)}")
         print(f"Error: {e}")
 
 async def handle_help(message):
-    """Muestra los comandos disponibles"""
+    """Muestra comandos disponibles"""
     embed = discord.Embed(
         title="📚 Comandos del Bot",
-        description="Sistema de gestión con consejos únicos de IA\n🔐 **Solo disponible para roles autorizados**",
+        description="Sistema de gestión con IA\n🔐 **Solo para usuarios con rol autorizado**",
         color=0x3498DB
     )
 
     embed.add_field(
         name="!add @usuario",
-        value="Añade usuario al canal. Genera consejos ÚNICOS cada vez con IA.",
+        value="Añade usuario al canal con consejos únicos de IA",
         inline=False
     )
 
     embed.add_field(
         name="!quit @usuario",
-        value="Remueve usuario del canal.",
-        inline=False
-    )
-
-    embed.add_field(
-        name="💡 Info",
-        value="**Middleman**: Intermediario que evita estafas.\n**Trader**: Intercambia objetos/cuentas digitales.",
+        value="Remueve usuario del canal",
         inline=False
     )
 
     embed.add_field(
         name="🔐 Seguridad",
-        value=f"Solo usuarios con roles autorizados pueden usar estos comandos.\n**Roles configurados:** {len(AUTHORIZED_ROLES)}",
+        value=f"Solo el rol **<@&{AUTHORIZED_ROLE_ID}>** puede usar comandos",
         inline=False
     )
 
-    embed.set_footer(text="Powered by Gemma 3 4B AI | Consejos únicos garantizados | Cat's Edition")
+    embed.set_footer(text="Powered by Gemma 3 4B AI | Cat's Edition")
 
     await message.channel.send(embed=embed)
 
-# Iniciar el selfbot
+# Iniciar el bot
 if __name__ == "__main__":
     token = os.getenv('DISCORD_TOKEN')
     if not token:
-        print("❌ ERROR: DISCORD_TOKEN no encontrado en las variables de entorno")
+        print("❌ ERROR: DISCORD_TOKEN no encontrado")
     else:
-        print("🚀 Iniciando selfbot con IA Gemma 3 4B...")
-        print("🎲 Sistema de variabilidad MÁXIMA activado")
-        print("🔐 Sistema de control de roles activado")
-        print("⚠️ ADVERTENCIA: Los selfbots violan los ToS de Discord")
+        print("🚀 Iniciando bot...")
+        print(f"🔐 ROL AUTORIZADO: {AUTHORIZED_ROLE_ID}")
         client.run(token)
