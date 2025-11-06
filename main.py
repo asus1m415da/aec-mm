@@ -481,4 +481,5 @@ if __name__ == "__main__":
         print("🎲 Sistema de variabilidad MÁXIMA activado")
         print("🔐 Sistema de control de roles activado")
         print("⚠️ ADVERTENCIA: Los selfbots violan los ToS de Discord")
-        client.run(token, bot=False)
+        client.run(token)
+
