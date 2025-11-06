@@ -1,4 +1,4 @@
-# Cat's Discord Bot - Versión discord.py-self con Control de Roles
+# Cat's Discord Bot - Compatible con TODAS las versiones de discord.py
 import discord
 from google import genai
 from google.genai import types
@@ -11,15 +11,8 @@ import hashlib
 # Cargar variables de entorno
 load_dotenv()
 
-# ✨ CONFIGURACIÓN CORREGIDA - INTENTS NECESARIOS ✨
-intents = discord.Intents.default()
-intents.messages = True
-intents.message_content = True
-intents.guilds = True
-intents.members = True
-
-# Configuración del cliente con intents
-client = discord.Client(intents=intents)
+# Configuración del cliente (sin intents para compatibilidad)
+client = discord.Client()
 
 # ✨ ROLES AUTORIZADOS PARA USAR LOS COMANDOS ✨
 AUTHORIZED_ROLES = [
@@ -221,11 +214,14 @@ def create_welcome_embed(member, advice_trader, advice_middleman):
     embed = discord.Embed(
         title="✨ ¡Bienvenido al Canal! ✨",
         description=f"**{member.mention}** ha sido añadido al canal",
-        color=random.choice(colors),
-        timestamp=discord.utils.utcnow()
+        color=random.choice(colors)
     )
 
-    embed.set_thumbnail(url=member.display_avatar.url)
+    # Usar avatar_url para compatibilidad con versiones antiguas
+    try:
+        embed.set_thumbnail(url=member.display_avatar.url)
+    except:
+        embed.set_thumbnail(url=member.avatar_url)
 
     embed.add_field(
         name="📊 Consejo para Traders",
@@ -245,10 +241,13 @@ def create_welcome_embed(member, advice_trader, advice_middleman):
         inline=False
     )
 
-    embed.set_footer(
-        text="Bot de Gestión de Canales | Powered by Gemma AI",
-        icon_url=client.user.display_avatar.url if client.user else None
-    )
+    try:
+        embed.set_footer(
+            text="Bot de Gestión de Canales | Powered by Gemma AI",
+            icon_url=client.user.display_avatar.url if client.user else None
+        )
+    except:
+        embed.set_footer(text="Bot de Gestión de Canales | Powered by Gemma AI")
 
     return embed
 
@@ -257,11 +256,14 @@ def create_removed_embed(member):
     embed = discord.Embed(
         title="👋 Usuario Removido",
         description=f"**{member.mention}** ha sido removido del canal",
-        color=0xFF4444,
-        timestamp=discord.utils.utcnow()
+        color=0xFF4444
     )
 
-    embed.set_thumbnail(url=member.display_avatar.url)
+    try:
+        embed.set_thumbnail(url=member.display_avatar.url)
+    except:
+        embed.set_thumbnail(url=member.avatar_url)
+    
     embed.set_footer(text="Bot de Gestión de Canales")
 
     return embed
@@ -357,6 +359,9 @@ async def handle_add(message):
         advice_trader = generate_advice("trader")
         advice_middleman = generate_advice("middleman")
 
+        print(f"📊 Trader: {advice_trader[:80]}...")
+        print(f"🤝 Middleman: {advice_middleman[:80]}...")
+
         embed = create_welcome_embed(member, advice_trader, advice_middleman)
 
         mensaje = await message.channel.send(embed=embed)
@@ -366,6 +371,8 @@ async def handle_add(message):
     except Exception as e:
         await message.channel.send(f"❌ Error al añadir usuario: {str(e)}")
         print(f"Error completo: {e}")
+        import traceback
+        traceback.print_exc()
 
 async def handle_quit(message):
     """Remueve a un usuario del canal"""
