@@ -1,7 +1,6 @@
-# Cat's Discord Bot - Compatible con discord.py ANTIGUO
+# Cat's Discord Bot - Compatible con discord.py-self 1.9.2
 import discord
-from google import genai
-from google.genai import types
+import google.generativeai as genai  # ✅ IMPORT CORREGIDO
 import os
 from dotenv import load_dotenv
 import random
@@ -18,14 +17,14 @@ def setup_gemma():
     api_key = os.getenv('GOOGLE_API_KEY')
     if not api_key:
         raise ValueError("GOOGLE_API_KEY no encontrada")
-    client_ai = genai.Client(api_key=api_key)
-    return client_ai
+    genai.configure(api_key=api_key)  # ✅ CONFIGURACIÓN CORREGIDA
+    return True
 
 try:
     gemma_client = setup_gemma()
 except Exception as e:
-    print(f"Error al configurar Gemma: {e}")
-    gemma_client = None
+    print(f"Error al configurar Gemini: {e}")
+    gemma_client = False
 
 consejos_history = {"trader": [], "middleman": []}
 
@@ -105,14 +104,14 @@ Texto simple, sin markdown."""
     }
 
     try:
-        # ✅ CORREGIDO: temperature reducido para compatibilidad con top_p
-        response = gemma_client.models.generate_content(
-            model='gemini-2.0-flash-exp',
-            contents=prompts[user_type],
-            config=types.GenerateContentConfig(
-                temperature=1.0,  # ✅ CAMBIADO de 2.0 a 1.0
-                top_p=0.95,       # ✅ CAMBIADO de 0.98 a 0.95
-                top_k=40,         # ✅ CAMBIADO de 64 a 40
+        # ✅ API CORREGIDA para google-generativeai
+        model = genai.GenerativeModel('gemini-2.0-flash-exp')
+        response = model.generate_content(
+            prompts[user_type],
+            generation_config=genai.types.GenerationConfig(
+                temperature=1.0,
+                top_p=0.95,
+                top_k=40,
                 max_output_tokens=150,
             )
         )
@@ -194,10 +193,7 @@ def create_welcome_embed(member, advice_trader, advice_middleman):
     try:
         embed.set_thumbnail(url=member.display_avatar.url)
     except:
-        try:
-            embed.set_thumbnail(url=member.avatar_url)
-        except:
-            pass
+        embed.set_thumbnail(url=member.avatar_url)
 
     embed.add_field(
         name="📊 Consejo para Traders",
@@ -217,10 +213,7 @@ def create_welcome_embed(member, advice_trader, advice_middleman):
         inline=False
     )
 
-    try:
-        embed.set_footer(text="Bot de Gestión | Powered by Gemma AI")
-    except:
-        pass
+    embed.set_footer(text="Bot de Gestión | Powered by Gemini AI")
 
     return embed
 
@@ -234,10 +227,7 @@ def create_removed_embed(member):
     try:
         embed.set_thumbnail(url=member.display_avatar.url)
     except:
-        try:
-            embed.set_thumbnail(url=member.avatar_url)
-        except:
-            pass
+        embed.set_thumbnail(url=member.avatar_url)
     
     embed.set_footer(text="Bot de Gestión de Canales")
 
@@ -245,15 +235,16 @@ def create_removed_embed(member):
 
 @client.event
 async def on_ready():
-    print(f'✅ Bot conectado como {client.user}')
+    print(f'✅ Selfbot conectado como {client.user}')
     print(f'ID: {client.user.id}')
+    print(f'discord.py-self versión: {discord.__version__}')
     print('------')
     print(f'🔐 ROL AUTORIZADO: {AUTHORIZED_ROLE_ID}')
     if gemma_client:
-        print('🤖 IA Gemma activada')
+        print('🤖 IA Gemini activada')
     else:
         print('⚠️ IA no disponible')
-    print('📡 Bot listo')
+    print('📡 Bot listo - Solo usuarios con rol autorizado pueden usar comandos')
 
 @client.event
 async def on_message(message):
@@ -321,42 +312,19 @@ async def handle_add(message):
 
         await message.channel.set_permissions(member, overwrite=overwrites)
 
-        print("🤖 Generando consejos...")
+        print("🤖 Generando consejos con IA...")
         advice_trader = generate_advice("trader")
         advice_middleman = generate_advice("middleman")
 
         embed = create_welcome_embed(member, advice_trader, advice_middleman)
 
-        # ✅ CORREGIDO: Enviar embed compatible con versiones antiguas
-        try:
-            # Intenta método moderno primero
-            await message.channel.send(embed=embed)
-        except TypeError:
-            # Fallback para discord.py antiguo: NO soporta embed=
-            # Enviar como mensaje de texto formateado
-            texto = f"""
-✨ **¡Bienvenido al Canal!** ✨
-
-**{member.mention}** ha sido añadido al canal
-
-📊 **Consejo para Traders:**
-> {advice_trader}
-
-🤝 **Consejo para Middlemans:**
-> {advice_middleman}
-
-💎 **Recordatorio:**
-Middlemans evitan estafas en trades de alto valor. Verifica reputación y documenta todo.
-
-_Bot de Gestión | Powered by Gemma AI_
-"""
-            await message.channel.send(texto)
+        await message.channel.send(embed=embed)
         
         print(f"✅ {member.name} añadido por {message.author.name}")
 
     except Exception as e:
         await message.channel.send(f"❌ Error: {str(e)}")
-        print(f"Error: {e}")
+        print(f"Error completo: {e}")
         import traceback
         traceback.print_exc()
 
@@ -391,13 +359,7 @@ async def handle_quit(message):
         await message.channel.set_permissions(member, overwrite=overwrites)
 
         embed = create_removed_embed(member)
-        
-        # ✅ CORREGIDO: Compatible con versiones antiguas
-        try:
-            await message.channel.send(embed=embed)
-        except TypeError:
-            texto = f"👋 **Usuario Removido**\n\n**{member.mention}** ha sido removido del canal"
-            await message.channel.send(texto)
+        await message.channel.send(embed=embed)
 
         print(f"✅ {member.name} removido por {message.author.name}")
 
@@ -414,7 +376,7 @@ async def handle_help(message):
 
     embed.add_field(
         name="!add @usuario",
-        value="Añade usuario al canal con consejos de IA",
+        value="Añade usuario al canal con consejos únicos de IA",
         inline=False
     )
 
@@ -430,36 +392,15 @@ async def handle_help(message):
         inline=False
     )
 
-    embed.set_footer(text="Powered by Gemma AI | Cat's Edition")
+    embed.set_footer(text="Powered by Gemini AI | Cat's Edition")
 
-    # ✅ CORREGIDO: Compatible con versiones antiguas
-    try:
-        await message.channel.send(embed=embed)
-    except TypeError:
-        texto = f"""
-📚 **Comandos del Bot**
-
-Sistema de gestión con IA
-🔐 **Solo para usuarios con rol autorizado**
-
-**!add @usuario**
-Añade usuario al canal con consejos de IA
-
-**!quit @usuario**
-Remueve usuario del canal
-
-🔐 **Seguridad**
-Solo el rol <@&{AUTHORIZED_ROLE_ID}> puede usar comandos
-
-_Powered by Gemma AI | Cat's Edition_
-"""
-        await message.channel.send(texto)
+    await message.channel.send(embed=embed)
 
 if __name__ == "__main__":
     token = os.getenv('DISCORD_TOKEN')
     if not token:
         print("❌ ERROR: DISCORD_TOKEN no encontrado")
     else:
-        print("🚀 Iniciando bot...")
+        print("🚀 Iniciando selfbot...")
         print(f"🔐 ROL AUTORIZADO: {AUTHORIZED_ROLE_ID}")
         client.run(token)
