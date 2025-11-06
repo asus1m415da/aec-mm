@@ -11,8 +11,15 @@ import hashlib
 # Cargar variables de entorno
 load_dotenv()
 
-# Configuración del cliente (selfbot)
-client = discord.Client()
+# ✨ CONFIGURACIÓN CORREGIDA - INTENTS NECESARIOS ✨
+intents = discord.Intents.default()
+intents.messages = True
+intents.message_content = True
+intents.guilds = True
+intents.members = True
+
+# Configuración del cliente con intents
+client = discord.Client(intents=intents)
 
 # ✨ ROLES AUTORIZADOS PARA USAR LOS COMANDOS ✨
 AUTHORIZED_ROLES = [
@@ -61,7 +68,7 @@ def generate_advice(user_type):
         return "⚠️ El servicio de IA no está disponible en este momento."
 
     # Crear semilla única usando timestamp + random + hash
-    timestamp = int(time.time() * 1000)  # Milisegundos
+    timestamp = int(time.time() * 1000)
     random_num = random.randint(10000, 99999)
     unique_seed = hashlib.md5(f"{timestamp}{random_num}".encode()).hexdigest()[:8]
 
@@ -90,11 +97,9 @@ def generate_advice(user_type):
 
     enfoque = random.choice(enfoques_trader if user_type == "trader" else enfoques_middleman)
 
-    # CONTEXTO MÍNIMO pero efectivo
     contexto = """Middleman: intermediario que evita estafas en trades digitales (Roblox/Discord).
 Trader: usuario que intercambia objetos/cuentas digitales."""
 
-    # Variaciones de estilo para cada consejo
     estilos = [
         "directo y profesional",
         "motivador y práctico",
@@ -130,26 +135,23 @@ Texto simple, sin markdown."""
     }
 
     try:
-        # MÁXIMA temperatura para MÁXIMA variabilidad
         response = gemma_client.models.generate_content(
             model='gemma-3-4b-it',
             contents=prompts[user_type],
             config=types.GenerateContentConfig(
-                temperature=2.0,  # MÁXIMA creatividad (rango 0-2)
-                top_p=98,       # Máxima diversidad
-                top_k=64,         # Más opciones de tokens
+                temperature=2.0,
+                top_p=0.98,
+                top_k=64,
                 max_output_tokens=150,
             )
         )
 
         advice = response.text.strip()
 
-        # Limpiar y validar
         if len(advice) > 800:
             advice = advice[:797] + "..."
 
-        # Agregar al historial (mantener últimos 5)
-        consejos_history[user_type].append(advice[:50])  # Solo primeras 50 chars
+        consejos_history[user_type].append(advice[:50])
         if len(consejos_history[user_type]) > 5:
             consejos_history[user_type].pop(0)
 
@@ -159,10 +161,7 @@ Texto simple, sin markdown."""
 
     except Exception as e:
         print(f"⚠️ Error generando consejo con IA: {e}")
-        import traceback
-        traceback.print_exc()
 
-        # Fallback con 15 consejos DIFERENTES para cada tipo
         consejos_fallback = {
             "trader": [
                 "💡 Verifica la reputación del middleman en múltiples servidores antes de confiar.",
@@ -200,7 +199,6 @@ Texto simple, sin markdown."""
             ]
         }
 
-        # Evitar repetir fallback recientes
         disponibles = [c for c in consejos_fallback[user_type] 
                       if not any(c[:50] == h for h in consejos_history[user_type][-3:])]
 
@@ -209,7 +207,6 @@ Texto simple, sin markdown."""
 
         consejo = random.choice(disponibles)
 
-        # Agregar al historial
         consejos_history[user_type].append(consejo[:50])
         if len(consejos_history[user_type]) > 5:
             consejos_history[user_type].pop(0)
@@ -230,7 +227,6 @@ def create_welcome_embed(member, advice_trader, advice_middleman):
 
     embed.set_thumbnail(url=member.display_avatar.url)
 
-    # Consejos ÚNICOS con IA
     embed.add_field(
         name="📊 Consejo para Traders",
         value=f"> {advice_trader}",
@@ -283,19 +279,25 @@ async def on_ready():
         print('🎲 Sistema anti-repetición activado')
     else:
         print('⚠️ IA no disponible')
+    print('📡 Bot listo para recibir comandos')
 
 @client.event
 async def on_message(message):
+    # 🔍 DEBUG: Imprimir TODOS los mensajes para diagnóstico
+    print(f"📨 Mensaje recibido: '{message.content}' de {message.author}")
+    
     # Ignorar mensajes de otros usuarios
     if message.author != client.user:
+        print(f"   ↳ Ignorado: no es del selfbot")
         return
 
+    print(f"   ↳ Es del selfbot, procesando...")
+
     # ✅ VERIFICAR ROLES ANTES DE PROCESAR COMANDOS
-    if message.guild:  # Solo verificar en servidores
+    if message.guild:
         author_member = message.guild.get_member(message.author.id)
         
         if not has_authorized_role(author_member):
-            # Si el usuario no tiene rol autorizado, ignorar silenciosamente
             if message.content.startswith(('!add', '!quit', '!help_bot')):
                 await message.channel.send("❌ No tienes permiso para usar este comando. Necesitas uno de los roles autorizados.")
                 print(f"⚠️ Usuario {message.author} intentó usar comando sin rol autorizado")
@@ -303,31 +305,30 @@ async def on_message(message):
 
     # Sistema de comandos manual
     if message.content.startswith('!add'):
+        print("✅ Comando !add detectado")
         await handle_add(message)
     elif message.content.startswith('!quit'):
+        print("✅ Comando !quit detectado")
         await handle_quit(message)
     elif message.content.startswith('!help_bot'):
+        print("✅ Comando !help_bot detectado")
         await handle_help(message)
+    else:
+        print(f"   ↳ No es un comando reconocido")
 
 async def handle_add(message):
-    """
-    Añade un usuario al canal con permisos de lectura y escritura
-    Uso: !add @usuario o !add ID_USUARIO
-    """
+    """Añade un usuario al canal con permisos de lectura y escritura"""
     parts = message.content.split()
     
     if len(parts) < 2:
         await message.channel.send("❌ Por favor menciona un usuario o proporciona su ID\nUso: `!add @usuario` o `!add ID_USUARIO`")
         return
 
-    # Obtener el miembro
     member = None
     
-    # Verificar si hay mención
     if message.mentions:
         member = message.mentions[0]
     else:
-        # Intentar por ID
         try:
             user_id = int(parts[1])
             member = await message.guild.fetch_member(user_id)
@@ -339,70 +340,46 @@ async def handle_add(message):
         await message.channel.send("❌ No se pudo encontrar el usuario")
         return
 
-    # Verificar que no sea un bot
     if member.bot:
         await message.channel.send("❌ No puedo añadir bots al canal")
         return
 
     try:
-        # Crear permisos
         overwrites = discord.PermissionOverwrite()
         overwrites.view_channel = True
         overwrites.send_messages = True
         overwrites.read_message_history = True
         overwrites.add_reactions = True
 
-        # Aplicar permisos al canal actual
         await message.channel.set_permissions(member, overwrite=overwrites)
 
-        # Generar consejos ÚNICOS con IA
         print("🤖 Generando consejos ÚNICOS con IA...")
         advice_trader = generate_advice("trader")
         advice_middleman = generate_advice("middleman")
 
-        print(f"📊 Trader: {advice_trader[:80]}...")
-        print(f"🤝 Middleman: {advice_middleman[:80]}...")
-
-        # Crear y enviar embed
         embed = create_welcome_embed(member, advice_trader, advice_middleman)
 
-        # Enviar el embed
         mensaje = await message.channel.send(embed=embed)
         print(f"✅ Embed enviado - ID: {mensaje.id}")
         print(f"✅ {member.name} añadido al canal {message.channel.name} por {message.author.name}")
 
-    except discord.Forbidden:
-        await message.channel.send("❌ No tengo permisos suficientes para modificar los permisos del canal")
-    except discord.HTTPException as e:
-        await message.channel.send(f"❌ Error HTTP al enviar el embed: {str(e)}")
-        print(f"Error HTTP completo: {e}")
-        import traceback
-        traceback.print_exc()
     except Exception as e:
         await message.channel.send(f"❌ Error al añadir usuario: {str(e)}")
         print(f"Error completo: {e}")
-        import traceback
-        traceback.print_exc()
 
 async def handle_quit(message):
-    """
-    Remueve a un usuario del canal
-    Uso: !quit @usuario o !quit ID_USUARIO
-    """
+    """Remueve a un usuario del canal"""
     parts = message.content.split()
     
     if len(parts) < 2:
         await message.channel.send("❌ Por favor menciona un usuario o proporciona su ID\nUso: `!quit @usuario` o `!quit ID_USUARIO`")
         return
 
-    # Obtener el miembro
     member = None
     
-    # Verificar si hay mención
     if message.mentions:
         member = message.mentions[0]
     else:
-        # Intentar por ID
         try:
             user_id = int(parts[1])
             member = await message.guild.fetch_member(user_id)
@@ -415,22 +392,17 @@ async def handle_quit(message):
         return
 
     try:
-        # Remover permisos específicos
         overwrites = discord.PermissionOverwrite()
         overwrites.view_channel = False
         overwrites.send_messages = False
 
-        # Aplicar permisos
         await message.channel.set_permissions(member, overwrite=overwrites)
 
-        # Crear y enviar embed
         embed = create_removed_embed(member)
         await message.channel.send(embed=embed)
 
         print(f"✅ {member.name} removido del canal {message.channel.name} por {message.author.name}")
 
-    except discord.Forbidden:
-        await message.channel.send("❌ No tengo permisos suficientes para modificar los permisos del canal")
     except Exception as e:
         await message.channel.send(f"❌ Error al remover usuario: {str(e)}")
         print(f"Error: {e}")
@@ -482,4 +454,3 @@ if __name__ == "__main__":
         print("🔐 Sistema de control de roles activado")
         print("⚠️ ADVERTENCIA: Los selfbots violan los ToS de Discord")
         client.run(token)
-
