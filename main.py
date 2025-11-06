@@ -1,6 +1,6 @@
-# Cat's Discord Bot - Compatible con discord.py-self 1.9.2
+# Cat's Discord Bot - Versión Mejorada
 import discord
-import google.generativeai as genai  # ✅ IMPORT CORREGIDO
+import google.generativeai as genai
 import os
 from dotenv import load_dotenv
 import random
@@ -11,13 +11,17 @@ load_dotenv()
 
 client = discord.Client()
 
-AUTHORIZED_ROLE_ID = 1427705211186839672
+# 🔐 MÚLTIPLES ROLES AUTORIZADOS
+AUTHORIZED_ROLES = [
+    1329516197175103651,
+    1427705211186839672
+]
 
 def setup_gemma():
     api_key = os.getenv('GOOGLE_API_KEY')
     if not api_key:
         raise ValueError("GOOGLE_API_KEY no encontrada")
-    genai.configure(api_key=api_key)  # ✅ CONFIGURACIÓN CORREGIDA
+    genai.configure(api_key=api_key)
     return True
 
 try:
@@ -29,10 +33,11 @@ except Exception as e:
 consejos_history = {"trader": [], "middleman": []}
 
 def has_authorized_role(member):
+    """Verifica si el miembro tiene alguno de los roles autorizados"""
     if member is None:
         return False
     member_role_ids = [role.id for role in member.roles]
-    return AUTHORIZED_ROLE_ID in member_role_ids
+    return any(role_id in member_role_ids for role_id in AUTHORIZED_ROLES)
 
 def generate_advice(user_type):
     if not gemma_client:
@@ -79,35 +84,21 @@ Trader: usuario que intercambia objetos/cuentas digitales."""
 
     estilo = random.choice(estilos)
 
-    prompts = {
-        "trader": f"""{contexto}
+    prompt = f"""{contexto}
 
-Genera UN consejo ÚNICO Y ORIGINAL para traders (máximo 2 líneas).
+Genera UN consejo ÚNICO Y ORIGINAL para {user_type}s (máximo 2 líneas).
 Enfoque específico: {enfoque}
 Estilo: {estilo}
-IMPORTANTE: NO repitas estos consejos previos: {', '.join(consejos_history['trader'][-3:]) if consejos_history['trader'] else 'ninguno'}
-
-Sé CREATIVO y DIFERENTE. Cada consejo debe ser ÚNICO.
-Semilla única: {unique_seed}
-Texto simple, sin markdown.""",
-
-        "middleman": f"""{contexto}
-
-Genera UN consejo ÚNICO Y ORIGINAL para middlemans (máximo 2 líneas).
-Enfoque específico: {enfoque}
-Estilo: {estilo}
-IMPORTANTE: NO repitas estos consejos previos: {', '.join(consejos_history['middleman'][-3:]) if consejos_history['middleman'] else 'ninguno'}
+IMPORTANTE: NO repitas estos consejos previos: {', '.join(consejos_history[user_type][-3:]) if consejos_history[user_type] else 'ninguno'}
 
 Sé CREATIVO y DIFERENTE. Cada consejo debe ser ÚNICO.
 Semilla única: {unique_seed}
 Texto simple, sin markdown."""
-    }
 
     try:
-        # ✅ API CORREGIDA para google-generativeai
         model = genai.GenerativeModel('gemini-2.0-flash-exp')
         response = model.generate_content(
-            prompts[user_type],
+            prompt,
             generation_config=genai.types.GenerationConfig(
                 temperature=1.0,
                 top_p=0.95,
@@ -182,7 +173,15 @@ Texto simple, sin markdown."""
         return consejo
 
 def create_welcome_embed(member, advice_trader, advice_middleman):
+    """Crea embed con validación de contenido"""
     colors = [0x00FF00, 0x00FFFF, 0xFF00FF, 0xFFD700, 0xFF6347, 0x9B59B6, 0xE74C3C, 0x3498DB, 0x1ABC9C, 0xF39C12]
+
+    # ✅ VALIDACIÓN: Asegurar que los consejos no estén vacíos
+    if not advice_trader or len(advice_trader.strip()) == 0:
+        advice_trader = "💡 Verifica siempre la reputación del middleman antes de iniciar el trade."
+    
+    if not advice_middleman or len(advice_middleman.strip()) == 0:
+        advice_middleman = "✨ Mantén un registro transparente de todos tus trades para generar confianza."
 
     embed = discord.Embed(
         title="✨ ¡Bienvenido al Canal! ✨",
@@ -193,7 +192,10 @@ def create_welcome_embed(member, advice_trader, advice_middleman):
     try:
         embed.set_thumbnail(url=member.display_avatar.url)
     except:
-        embed.set_thumbnail(url=member.avatar_url)
+        try:
+            embed.set_thumbnail(url=member.avatar_url)
+        except:
+            pass
 
     embed.add_field(
         name="📊 Consejo para Traders",
@@ -227,7 +229,10 @@ def create_removed_embed(member):
     try:
         embed.set_thumbnail(url=member.display_avatar.url)
     except:
-        embed.set_thumbnail(url=member.avatar_url)
+        try:
+            embed.set_thumbnail(url=member.avatar_url)
+        except:
+            pass
     
     embed.set_footer(text="Bot de Gestión de Canales")
 
@@ -239,19 +244,23 @@ async def on_ready():
     print(f'ID: {client.user.id}')
     print(f'discord.py-self versión: {discord.__version__}')
     print('------')
-    print(f'🔐 ROL AUTORIZADO: {AUTHORIZED_ROLE_ID}')
+    print(f'🔐 ROLES AUTORIZADOS ({len(AUTHORIZED_ROLES)}):')
+    for role_id in AUTHORIZED_ROLES:
+        print(f'   - {role_id}')
     if gemma_client:
         print('🤖 IA Gemini activada')
     else:
         print('⚠️ IA no disponible')
-    print('📡 Bot listo - Solo usuarios con rol autorizado pueden usar comandos')
+    print('📡 Bot listo')
 
 @client.event
 async def on_message(message):
     if message.author.bot:
         return
     
-    if not message.content.startswith('!'):
+    # Soportar tanto !add como !Add (case-insensitive)
+    content_lower = message.content.lower()
+    if not content_lower.startswith('!'):
         return
     
     if not message.guild:
@@ -269,38 +278,69 @@ async def on_message(message):
     
     print(f"✅ Usuario autorizado: {message.author} - {message.content}")
     
-    if message.content.startswith('!add'):
+    if content_lower.startswith('!add'):
         await handle_add(message)
-    elif message.content.startswith('!quit'):
+    elif content_lower.startswith('!quit'):
         await handle_quit(message)
-    elif message.content.startswith('!help_bot'):
+    elif content_lower.startswith('!help_bot'):
         await handle_help(message)
 
 async def handle_add(message):
+    """
+    Añade usuario con múltiples métodos:
+    !add @usuario
+    !add usuario (sin @, busca por nombre)
+    !add 123456789 (ID)
+    """
     parts = message.content.split()
     
     if len(parts) < 2:
-        await message.channel.send("❌ Uso: `!add @usuario` o `!add ID_USUARIO`")
+        await message.channel.send("❌ Uso:\n`!add @usuario`\n`!add usuario`\n`!add ID_USUARIO`")
         return
 
     member = None
+    query = parts[1]
     
+    # Método 1: Mención directa
     if message.mentions:
         member = message.mentions[0]
-    else:
+        print(f"   📍 Método: Mención directa")
+    
+    # Método 2: ID numérico
+    elif query.replace('<@', '').replace('>', '').replace('!', '').isdigit():
         try:
-            user_id = int(parts[1].replace('<@', '').replace('>', '').replace('!', ''))
+            user_id = int(query.replace('<@', '').replace('>', '').replace('!', ''))
             member = await message.guild.fetch_member(user_id)
-        except:
-            await message.channel.send("❌ No se pudo encontrar el usuario")
-            return
+            print(f"   📍 Método: ID ({user_id})")
+        except Exception as e:
+            print(f"   ❌ ID no encontrado: {e}")
+    
+    # Método 3: Buscar por nombre de usuario
+    else:
+        # Buscar en miembros del servidor
+        query_lower = query.lower()
+        
+        # Buscar coincidencia exacta primero
+        for m in message.guild.members:
+            if m.name.lower() == query_lower or m.display_name.lower() == query_lower:
+                member = m
+                print(f"   📍 Método: Nombre exacto ('{query}')")
+                break
+        
+        # Si no encuentra exacto, buscar que contenga el nombre
+        if not member:
+            for m in message.guild.members:
+                if query_lower in m.name.lower() or query_lower in m.display_name.lower():
+                    member = m
+                    print(f"   📍 Método: Nombre parcial ('{query}')")
+                    break
 
     if member is None:
-        await message.channel.send("❌ Usuario no encontrado")
+        await message.channel.send(f"❌ No se pudo encontrar el usuario `{query}`")
         return
 
     if member.bot:
-        await message.channel.send("❌ No puedo añadir bots")
+        await message.channel.send("❌ No puedo añadir bots al canal")
         return
 
     try:
@@ -316,9 +356,39 @@ async def handle_add(message):
         advice_trader = generate_advice("trader")
         advice_middleman = generate_advice("middleman")
 
+        # ✅ VALIDACIÓN ADICIONAL antes de crear embed
+        if not advice_trader:
+            advice_trader = "💡 Verifica siempre la reputación del middleman."
+        if not advice_middleman:
+            advice_middleman = "✨ Mantén transparencia en todos tus trades."
+
         embed = create_welcome_embed(member, advice_trader, advice_middleman)
 
-        await message.channel.send(embed=embed)
+        # ✅ ENVÍO SEGURO con fallback
+        try:
+            await message.channel.send(embed=embed)
+        except discord.HTTPException as e:
+            if "empty message" in str(e).lower():
+                # Si el embed falla, enviar como texto
+                texto = f"""
+✨ **¡Bienvenido al Canal!** ✨
+
+**{member.mention}** ha sido añadido al canal
+
+📊 **Consejo para Traders:**
+> {advice_trader}
+
+🤝 **Consejo para Middlemans:**
+> {advice_middleman}
+
+💎 **Recordatorio:**
+Middlemans evitan estafas en trades de alto valor. Verifica reputación y documenta todo.
+
+_Bot de Gestión | Powered by Gemini AI_
+"""
+                await message.channel.send(texto)
+            else:
+                raise
         
         print(f"✅ {member.name} añadido por {message.author.name}")
 
@@ -329,26 +399,44 @@ async def handle_add(message):
         traceback.print_exc()
 
 async def handle_quit(message):
+    """Remueve usuario del canal con múltiples métodos"""
     parts = message.content.split()
     
     if len(parts) < 2:
-        await message.channel.send("❌ Uso: `!quit @usuario` o `!quit ID_USUARIO`")
+        await message.channel.send("❌ Uso:\n`!quit @usuario`\n`!quit usuario`\n`!quit ID_USUARIO`")
         return
 
     member = None
+    query = parts[1]
     
+    # Método 1: Mención directa
     if message.mentions:
         member = message.mentions[0]
-    else:
+    
+    # Método 2: ID numérico
+    elif query.replace('<@', '').replace('>', '').replace('!', '').isdigit():
         try:
-            user_id = int(parts[1].replace('<@', '').replace('>', '').replace('!', ''))
+            user_id = int(query.replace('<@', '').replace('>', '').replace('!', ''))
             member = await message.guild.fetch_member(user_id)
         except:
-            await message.channel.send("❌ No se pudo encontrar el usuario")
-            return
+            pass
+    
+    # Método 3: Nombre de usuario
+    else:
+        query_lower = query.lower()
+        for m in message.guild.members:
+            if m.name.lower() == query_lower or m.display_name.lower() == query_lower:
+                member = m
+                break
+        
+        if not member:
+            for m in message.guild.members:
+                if query_lower in m.name.lower() or query_lower in m.display_name.lower():
+                    member = m
+                    break
 
     if member is None:
-        await message.channel.send("❌ Usuario no encontrado")
+        await message.channel.send(f"❌ No se pudo encontrar el usuario `{query}`")
         return
 
     try:
@@ -359,7 +447,12 @@ async def handle_quit(message):
         await message.channel.set_permissions(member, overwrite=overwrites)
 
         embed = create_removed_embed(member)
-        await message.channel.send(embed=embed)
+        
+        try:
+            await message.channel.send(embed=embed)
+        except discord.HTTPException:
+            texto = f"👋 **Usuario Removido**\n\n**{member.mention}** ha sido removido del canal"
+            await message.channel.send(texto)
 
         print(f"✅ {member.name} removido por {message.author.name}")
 
@@ -370,25 +463,25 @@ async def handle_quit(message):
 async def handle_help(message):
     embed = discord.Embed(
         title="📚 Comandos del Bot",
-        description="Sistema de gestión con IA\n🔐 **Solo para usuarios con rol autorizado**",
+        description="Sistema de gestión con IA\n🔐 **Solo para usuarios con roles autorizados**",
         color=0x3498DB
     )
 
     embed.add_field(
-        name="!add @usuario",
-        value="Añade usuario al canal con consejos únicos de IA",
+        name="!add usuario",
+        value="Añade usuario al canal\n**Métodos:**\n• `!add @usuario`\n• `!add usuario`\n• `!add ID`",
         inline=False
     )
 
     embed.add_field(
-        name="!quit @usuario",
-        value="Remueve usuario del canal",
+        name="!quit usuario",
+        value="Remueve usuario del canal (mismos métodos que !add)",
         inline=False
     )
 
     embed.add_field(
         name="🔐 Seguridad",
-        value=f"Solo el rol <@&{AUTHORIZED_ROLE_ID}> puede usar comandos",
+        value=f"**{len(AUTHORIZED_ROLES)} roles** pueden usar comandos",
         inline=False
     )
 
@@ -402,5 +495,5 @@ if __name__ == "__main__":
         print("❌ ERROR: DISCORD_TOKEN no encontrado")
     else:
         print("🚀 Iniciando selfbot...")
-        print(f"🔐 ROL AUTORIZADO: {AUTHORIZED_ROLE_ID}")
+        print(f"🔐 ROLES AUTORIZADOS: {len(AUTHORIZED_ROLES)}")
         client.run(token)
