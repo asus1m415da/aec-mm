@@ -1,22 +1,22 @@
-# Cat's Discord Bot - Versión Ultra Estable v3.0
+# Cat's Discord Bot - Versión Final v3.1
 import discord
 import os
 from dotenv import load_dotenv
 import random
-import time
-import hashlib
-import sys
-import traceback
 
 print("\n🔍 Cargando...\n")
 
 load_dotenv()
 
-# Cliente simple y rápido
 client = discord.Client(chunk_guilds_at_startup=False)
 
-# 🔐 ROLES AUTORIZADOS
-AUTHORIZED_ROLES = [1329516197175103651, 1427705211186839672]
+# 🔐 LOS 4 ROLES AUTORIZADOS (ACTUALIZADO)
+AUTHORIZED_ROLES = [
+    1427705211186839672,
+    1330597790660694047,
+    1329516197175103651,
+    1330356239103688835
+]
 
 # IA
 try:
@@ -30,11 +30,10 @@ try:
 except:
     GEMINI_OK = False
 
-# Historial de consejos
 consejos_history = {"trader": [], "middleman": []}
 
 def get_advice(user_type):
-    """Consejo rápido sin IA si falla"""
+    """Consejo rápido"""
     consejos = {
         "trader": [
             "Verifica reputación en múltiples servidores",
@@ -107,11 +106,16 @@ async def on_message(message):
         if not member:
             return
         
-        # Verificar permisos
+        # ✅ VERIFICAR ROLES - NUEVA LÓGICA
         member_roles = [r.id for r in member.roles]
-        if not any(r in member_roles for r in AUTHORIZED_ROLES):
+        tiene_rol = any(r in AUTHORIZED_ROLES for r in member_roles)
+        
+        if not tiene_rol:
+            print(f"❌ {message.author} NO tiene rol autorizado. Roles: {member_roles}")
             await message.channel.send("❌ Sin permisos")
             return
+        
+        print(f"✅ {message.author} tiene rol autorizado")
         
         cmd = message.content.lower().split()[0]
         
@@ -174,7 +178,7 @@ async def on_message(message):
 _Bot | Gemini AI_"""
                 
                 await message.channel.send(msg)
-                print(f"✅ {target.name} añadido")
+                print(f"✅ {target.name} añadido por {message.author}")
             
             except Exception as e:
                 await message.channel.send(f"❌ Error: {e}")
@@ -214,7 +218,7 @@ _Bot | Gemini AI_"""
                 await message.channel.set_permissions(target, overwrite=ov)
                 
                 await message.channel.send(f"👋 **{target.mention}** removido")
-                print(f"✅ {target.name} removido")
+                print(f"✅ {target.name} removido por {message.author}")
             
             except Exception as e:
                 await message.channel.send(f"❌ Error: {e}")
@@ -228,14 +232,13 @@ _Bot | Gemini AI_"""
 `$quit @usuario` - Remueve del canal
 `$help` - Muestra esto
 
-🔐 Solo roles autorizados
+🔐 Solo 4 roles autorizados
 _Powered by Gemini AI_"""
             
             await message.channel.send(msg)
     
     except Exception as e:
         print(f"Error: {e}")
-        traceback.print_exc()
 
 if __name__ == "__main__":
     token = os.getenv('DISCORD_TOKEN')
