@@ -1,6 +1,5 @@
-# Cat's Discord Bot - Versión Estable v2.1
+# Cat's Discord Bot - Versión Final v2.5
 import discord
-import google.generativeai as genai
 import os
 from dotenv import load_dotenv
 import random
@@ -8,26 +7,27 @@ import time
 import hashlib
 import sys
 
-# ✅ VERIFICACIÓN SEGURA DE DEPENDENCIAS
-print("🔍 Verificando dependencias...")
-try:
-    print(f"   Python: v{sys.version.split()[0]}")
-except:
-    print(f"   Python: v{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")
-
+# ✅ VERIFICACIÓN DE DEPENDENCIAS (ORDEN CORRECTO)
+print("\n🔍 Verificando dependencias...")
+print(f"   Python: v{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")
 print(f"   discord.py-self: v{discord.__version__}")
 
 try:
     import discord_self_embed
     EMBEDS_DISPONIBLES = True
-    try:
-        print(f"   discord.py-self-embed: v{discord_self_embed.__version__}")
-    except:
-        print("   discord.py-self-embed: Instalado")
+    print("   ✅ discord.py-self-embed: Instalado")
 except ImportError:
     EMBEDS_DISPONIBLES = False
     print("   ⚠️  discord.py-self-embed: No instalado")
-    print("   💡 Ejecuta: pip install discord.py-self-embed")
+
+try:
+    import google.generativeai as genai
+    GEMINI_DISPONIBLE = True
+    print("   ✅ google-generativeai: Instalado")
+except ImportError:
+    genai = None
+    GEMINI_DISPONIBLE = False
+    print("   ⚠️  google-generativeai: No instalado")
 
 print()
 
@@ -50,32 +50,35 @@ consejos_history = {"trader": [], "middleman": []}
 gemma_client = False
 
 def setup_gemma():
-    """Configura Gemini AI de forma segura"""
+    """Configura Gemini AI"""
     try:
+        if not GEMINI_DISPONIBLE:
+            return False
         api_key = os.getenv('GOOGLE_API_KEY')
         if not api_key:
             return False
         genai.configure(api_key=api_key)
         return True
     except Exception as e:
-        print(f"⚠️ Error configurando Gemini: {e}")
+        print(f"⚠️ Error Gemini: {e}")
         return False
 
-# Inicializar IA
 gemma_client = setup_gemma()
 
 def has_authorized_role(member):
-    """Verifica rol autorizado con manejo de errores"""
+    """Verifica rol autorizado"""
     try:
         if member is None:
             return False
         member_role_ids = [role.id for role in member.roles]
-        return any(role_id in member_role_ids for role_id in AUTHORIZED_ROLES)
-    except:
+        has_role = any(role_id in member_role_ids for role_id in AUTHORIZED_ROLES)
+        return has_role
+    except Exception as e:
+        print(f"Error verificando roles: {e}")
         return False
 
 def generate_advice(user_type):
-    """Genera consejo único con IA o fallback"""
+    """Genera consejo con IA o fallback"""
     if not gemma_client:
         return get_fallback_advice(user_type)
 
@@ -84,38 +87,22 @@ def generate_advice(user_type):
         random_num = random.randint(10000, 99999)
         unique_seed = hashlib.md5(f"{timestamp}{random_num}".encode()).hexdigest()[:8]
 
-        enfoques = {
-            "trader": [
-                "seguridad", "protección contra scams", "documentación",
-                "señales de alerta", "comunicación", "verificación"
-            ],
-            "middleman": [
-                "confianza", "transparencia", "profesionalismo",
-                "comunicación", "gestión", "reputación"
-            ]
-        }
-
-        enfoque = random.choice(enfoques[user_type])
-        
-        prompt = f"""Genera UN consejo corto para {user_type}s de trading (máximo 90 caracteres).
-Tema: {enfoque}
-Sin repetir: {', '.join(consejos_history[user_type][-2:]) if consejos_history[user_type] else 'ninguno'}
+        prompt = f"""Consejo corto para {user_type}s de trading (max 80 chars).
 Semilla: {unique_seed}
-Texto simple."""
+Sin repetir: {', '.join(consejos_history[user_type][-2:]) if consejos_history[user_type] else 'ninguno'}"""
 
         model = genai.GenerativeModel('gemini-2.0-flash-exp')
         response = model.generate_content(
             prompt,
             generation_config=genai.types.GenerationConfig(
                 temperature=1.0,
-                top_p=0.95,
-                max_output_tokens=50,
+                max_output_tokens=40,
             )
         )
 
-        advice = response.text.strip()[:250]
+        advice = response.text.strip()[:220]
         
-        consejos_history[user_type].append(advice[:40])
+        consejos_history[user_type].append(advice[:35])
         if len(consejos_history[user_type]) > 4:
             consejos_history[user_type].pop(0)
 
@@ -131,66 +118,60 @@ def get_fallback_advice(user_type):
         "trader": [
             "Verifica reputación en múltiples servidores",
             "Nunca compartas archivos .HAR",
-            "Graba video del trade completo",
-            "Usa middlemen con +100 trades verificados",
-            "Pide referencias antes de iniciar",
-            "Confirma identidad en servidor oficial",
-            "Revisa roles verificados del MM",
-            "Mantén conversaciones en Discord",
+            "Graba video del trade",
+            "Usa middlemen con +100 trades",
+            "Pide referencias antes",
+            "Confirma identidad oficial",
+            "Revisa roles verificados",
             "Screenshots de cada paso",
-            "Evita tarifas excesivas",
-            "Activa 2FA antes de tradear",
+            "Activa 2FA antes",
             "Confía en tu instinto"
         ],
         "middleman": [
-            "Registro público con evidencias",
+            "Registro público transparente",
             "Nunca pidas contraseñas",
-            "Responde rápido durante trades",
-            "Publica testimonios regularmente",
-            "Sistema de tickets profesional",
-            "Explica cada paso claramente",
+            "Responde rápido",
+            "Testimonios regularmente",
+            "Sistema de tickets",
+            "Explica cada paso",
             "Guarda evidencias 30+ días",
             "Comunicación constante",
-            "Políticas claras escritas",
-            "Actualiza estadísticas semanales",
-            "Rechaza trades sospechosos",
-            "Sé imparcial siempre"
+            "Políticas claras",
+            "Sé imparcial"
         ]
     }
 
     disponibles = fallback.get(user_type, fallback["trader"])
     
-    # Evitar repeticiones recientes
     usados = consejos_history[user_type][-2:] if consejos_history[user_type] else []
-    disponibles = [c for c in disponibles if c[:40] not in [u[:40] for u in usados]]
+    disponibles = [c for c in disponibles if c[:35] not in [u[:35] for u in usados]]
     
     if not disponibles:
         disponibles = fallback[user_type]
 
     consejo = random.choice(disponibles)
     
-    consejos_history[user_type].append(consejo[:40])
+    consejos_history[user_type].append(consejo[:35])
     if len(consejos_history[user_type]) > 4:
         consejos_history[user_type].pop(0)
 
     return consejo
 
 def create_welcome_message(member, advice_trader, advice_middleman):
-    """Crea mensaje de bienvenida seguro"""
+    """Crea mensaje de bienvenida"""
     try:
-        # Validación y límites
-        advice_trader = str(advice_trader)[:240] if advice_trader else "Verifica reputación"
-        advice_middleman = str(advice_middleman)[:240] if advice_middleman else "Mantén transparencia"
+        advice_trader = str(advice_trader)[:200] if advice_trader else "Verifica reputación"
+        advice_middleman = str(advice_middleman)[:200] if advice_middleman else "Mantén transparencia"
         
         if EMBEDS_DISPONIBLES:
             try:
                 colors = ["00FF00", "00FFFF", "FF00FF", "FFD700", "9B59B6", "3498DB"]
                 
-                desc = f"{member.mention} añadido\n\n📊 {advice_trader[:80]}\n\n🤝 {advice_middleman[:80]}"
+                desc = f"{member.mention} añadido\n\n📊 {advice_trader[:70]}\n🤝 {advice_middleman[:70]}"
                 
                 embed = discord_self_embed.Embed(
                     title="✨ Bienvenido ✨",
-                    description=desc[:320],
+                    description=desc[:300],
                     colour=random.choice(colors)
                 )
                 
@@ -198,24 +179,22 @@ def create_welcome_message(member, advice_trader, advice_middleman):
             except Exception as e:
                 print(f"⚠️ Embed error: {e}")
         
-        # Fallback texto
         return f"""✨ **¡Bienvenido!** ✨
 
 {member.mention} añadido al canal
 
 📊 **Traders:** {advice_trader}
-
 🤝 **Middlemans:** {advice_middleman}
 
 💎 Verifica reputación y documenta todo.
 _Bot | Powered by Gemini AI_"""
     
     except Exception as e:
-        print(f"Error creando mensaje: {e}")
-        return f"✨ {member.mention} ha sido añadido al canal"
+        print(f"Error mensaje: {e}")
+        return f"✨ {member.mention} añadido al canal"
 
 def create_removed_message(member):
-    """Crea mensaje de remoción seguro"""
+    """Crea mensaje de remoción"""
     try:
         if EMBEDS_DISPONIBLES:
             try:
@@ -228,101 +207,115 @@ def create_removed_message(member):
             except:
                 pass
         
-        return f"👋 **Usuario Removido:** {member.mention}"
+        return f"👋 **Removido:** {member.mention}"
     except:
-        return "👋 Usuario removido del canal"
+        return "👋 Usuario removido"
 
 @client.event
 async def on_ready():
-    """Evento cuando el bot está listo"""
-    try:
-        print(f'✅ Selfbot conectado como {client.user}')
-        print(f'   ID: {client.user.id}')
-        print(f'   discord.py-self: v{discord.__version__}')
-        print('------')
-        print(f'🔐 Roles autorizados: {len(AUTHORIZED_ROLES)}')
-        print(f'🤖 IA Gemini: {"✅" if gemma_client else "❌"}')
-        print(f'🎨 Embeds: {"✅" if EMBEDS_DISPONIBLES else "❌"}')
-        print('📡 Bot listo\n')
-    except Exception as e:
-        print(f"Error en on_ready: {e}")
+    """Bot listo"""
+    print(f'✅ Selfbot conectado como {client.user}')
+    print(f'   ID: {client.user.id}')
+    print('------')
+    print(f'🔐 Roles autorizados: {len(AUTHORIZED_ROLES)}')
+    print(f'🤖 IA Gemini: {"✅" if gemma_client else "❌"}')
+    print(f'🎨 Embeds: {"✅" if EMBEDS_DISPONIBLES else "❌"}')
+    print(f'💲 Prefijo: $')
+    print('📡 Bot listo - Esperando comandos...\n')
 
 @client.event
 async def on_message(message):
-    """Procesa mensajes y comandos"""
+    """Procesa comandos"""
     try:
+        # Debug: Ver TODOS los mensajes
+        if message.content.startswith('$'):
+            print(f"[DEBUG] Mensaje detectado: '{message.content}' de {message.author}")
+        
         # Ignorar bots
         if message.author.bot:
             return
         
-        # Solo comandos .
-        if not message.content.startswith('.'):
+        # Solo comandos con $
+        if not message.content.startswith('$'):
             return
         
         # Solo en servidores
         if not message.guild:
+            await message.channel.send("❌ Solo funciona en servidores")
             return
         
         # Obtener miembro
         member = message.guild.get_member(message.author.id)
         if not member:
+            print(f"[DEBUG] No se pudo obtener miembro para {message.author}")
             return
         
         # Verificar permisos
         if not has_authorized_role(member):
+            print(f"[DEBUG] {message.author} sin rol autorizado")
             await message.channel.send("❌ Sin permisos.")
             return
+        
+        print(f"[✅] Comando autorizado: {message.content} por {message.author}")
         
         # Comandos
         content = message.content.lower().strip()
         
-        if content.startswith('.add'):
+        if content.startswith('$add'):
             await handle_add(message)
-        elif content.startswith('.quit'):
+        elif content.startswith('$quit'):
             await handle_quit(message)
-        elif content.startswith('.help'):
+        elif content.startswith('$help'):
             await handle_help(message)
+        else:
+            await message.channel.send(f"❌ Comando desconocido. Usa `$help`")
     
     except Exception as e:
-        print(f"Error en on_message: {e}")
+        print(f"[ERROR] on_message: {e}")
+        import traceback
+        traceback.print_exc()
 
 async def handle_add(message):
-    """Añade usuario al canal"""
+    """Añade usuario"""
     try:
         parts = message.content.split()
         
         if len(parts) < 2:
-            await message.channel.send("❌ Uso: `.add @usuario` | `.add nombre` | `.add ID`")
+            await message.channel.send("❌ Uso: `$add @usuario` | `$add nombre` | `$add ID`")
             return
 
         member = None
         query = parts[1]
         
-        # Mención directa
+        # Mención
         if message.mentions and len(message.mentions) > 0:
             member = message.mentions[0]
+            print(f"[DEBUG] Usuario encontrado por mención: {member.name}")
         
-        # ID numérico
+        # ID
         elif query.replace('<@', '').replace('>', '').replace('!', '').isdigit():
             try:
                 user_id = int(query.replace('<@', '').replace('>', '').replace('!', ''))
                 member = await message.guild.fetch_member(user_id)
-            except:
-                pass
+                print(f"[DEBUG] Usuario encontrado por ID: {member.name}")
+            except Exception as e:
+                print(f"[DEBUG] ID no encontrado: {e}")
         
-        # Buscar por nombre
+        # Nombre
         else:
             query_lower = query.lower()
             
             for m in message.guild.members:
                 if m.name.lower() == query_lower or m.display_name.lower() == query_lower:
                     member = m
+                    print(f"[DEBUG] Usuario encontrado por nombre exacto: {member.name}")
                     break
             
             if not member:
                 for m in message.guild.members:
                     if query_lower in m.name.lower() or query_lower in m.display_name.lower():
                         member = m
+                        print(f"[DEBUG] Usuario encontrado por nombre parcial: {member.name}")
                         break
 
         if not member:
@@ -333,7 +326,7 @@ async def handle_add(message):
             await message.channel.send("❌ No puedo añadir bots")
             return
 
-        # Establecer permisos
+        # Permisos
         overwrites = discord.PermissionOverwrite()
         overwrites.view_channel = True
         overwrites.send_messages = True
@@ -342,27 +335,29 @@ async def handle_add(message):
 
         await message.channel.set_permissions(member, overwrite=overwrites)
 
-        # Generar consejos
+        # Consejos
         advice_trader = generate_advice("trader")
         advice_middleman = generate_advice("middleman")
 
-        # Enviar mensaje
+        # Enviar
         msg_content = create_welcome_message(member, advice_trader, advice_middleman)
         await message.channel.send(msg_content)
         
-        print(f"✅ {member.name} añadido")
+        print(f"[✅] {member.name} añadido por {message.author.name}")
 
     except Exception as e:
         await message.channel.send(f"❌ Error: {str(e)[:100]}")
-        print(f"Error en add: {e}")
+        print(f"[ERROR] handle_add: {e}")
+        import traceback
+        traceback.print_exc()
 
 async def handle_quit(message):
-    """Remueve usuario del canal"""
+    """Remueve usuario"""
     try:
         parts = message.content.split()
         
         if len(parts) < 2:
-            await message.channel.send("❌ Uso: `.quit @usuario` | `.quit nombre` | `.quit ID`")
+            await message.channel.send("❌ Uso: `$quit @usuario` | `$quit nombre` | `$quit ID`")
             return
 
         member = None
@@ -400,15 +395,14 @@ async def handle_quit(message):
 
         await message.channel.set_permissions(member, overwrite=overwrites)
 
-        # Enviar confirmación
         msg_content = create_removed_message(member)
         await message.channel.send(msg_content)
 
-        print(f"✅ {member.name} removido")
+        print(f"[✅] {member.name} removido por {message.author.name}")
 
     except Exception as e:
         await message.channel.send(f"❌ Error: {str(e)[:100]}")
-        print(f"Error en quit: {e}")
+        print(f"[ERROR] handle_quit: {e}")
 
 async def handle_help(message):
     """Muestra ayuda"""
@@ -417,7 +411,7 @@ async def handle_help(message):
             try:
                 embed = discord_self_embed.Embed(
                     title="📚 Comandos",
-                    description=".add usuario | .quit usuario | .help\nSolo roles autorizados",
+                    description="$add usuario | $quit usuario | $help\nSolo roles autorizados",
                     colour="3498DB"
                 )
                 
@@ -426,24 +420,24 @@ async def handle_help(message):
             except:
                 pass
         
-        texto = """📚 **Comandos del Bot**
+        texto = f"""📚 **Comandos del Bot**
 
-**.add** - Añade usuario
-`.add @user` | `.add nombre` | `.add ID`
+**$add** - Añade usuario
+`$add @user` | `$add nombre` | `$add ID`
 
-**.quit** - Remueve usuario
+**$quit** - Remueve usuario
 (mismos métodos)
 
-**.help** - Muestra ayuda
+**$help** - Muestra ayuda
 
-🔐 Solo roles autorizados
+🔐 Solo roles autorizados ({len(AUTHORIZED_ROLES)})
 _Powered by Gemini AI_"""
         
         await message.channel.send(texto)
     
     except Exception as e:
-        print(f"Error en help: {e}")
-        await message.channel.send("📚 Comandos: .add | .quit | .help")
+        print(f"[ERROR] handle_help: {e}")
+        await message.channel.send("📚 Comandos: $add | $quit | $help")
 
 if __name__ == "__main__":
     token = os.getenv('DISCORD_TOKEN')
@@ -453,11 +447,14 @@ if __name__ == "__main__":
         exit(1)
     
     print("🚀 Iniciando selfbot...")
-    print(f"🔐 {len(AUTHORIZED_ROLES)} roles autorizados\n")
+    print(f"🔐 {len(AUTHORIZED_ROLES)} roles autorizados")
+    print(f"💲 Prefijo de comandos: $\n")
     
     try:
         client.run(token)
     except KeyboardInterrupt:
-        print("\n⚠️ Bot detenido por usuario")
+        print("\n⚠️ Bot detenido")
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f"❌ Error fatal: {e}")
+        import traceback
+        traceback.print_exc()
