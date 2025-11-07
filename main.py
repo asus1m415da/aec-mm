@@ -1,4 +1,4 @@
-# Cat's Discord Bot - Versión Definitiva v4.1
+# Cat's Discord Bot - Versión Para discord.py-self v4.2
 import discord
 import os
 from dotenv import load_dotenv
@@ -7,7 +7,8 @@ print("\n🚀 Iniciando bot...\n")
 
 load_dotenv()
 
-client = discord.Client(chunk_guilds_at_startup=False, intents=discord.Intents.all())
+# ✅ SIN INTENTS - discord.py-self no los soporta
+client = discord.Client(chunk_guilds_at_startup=False)
 
 # 🔐 4 ROLES AUTORIZADOS
 AUTHORIZED_ROLES = [
@@ -54,7 +55,7 @@ async def on_message(message):
         
         if not tiene_rol:
             print(f"❌ {message.author} no tiene permisos")
-            await message.channel.send("❌ No tienes permisos para usar este bot")
+            await message.channel.send("❌ No tienes permisos")
             return
         
         print(f"✅ {message.author} AUTORIZADO")
@@ -75,36 +76,29 @@ async def on_message(message):
             # Mención
             if message.mentions:
                 target = message.mentions[0]
-                print(f"   Método: Mención")
             # ID
             elif query.isdigit():
                 try:
                     target = await message.guild.fetch_member(int(query))
-                    print(f"   Método: ID")
-                except Exception as e:
-                    print(f"   ID error: {e}")
-            # Nombre o @nombre
+                except:
+                    pass
+            # Nombre
             else:
                 query_clean = query.replace('@', '').lower().strip()
                 
-                # Búsqueda exacta
                 for m in message.guild.members:
                     if m.name.lower() == query_clean or m.display_name.lower() == query_clean:
                         target = m
-                        print(f"   Método: Nombre exacto")
                         break
                 
-                # Búsqueda parcial
                 if not target:
                     for m in message.guild.members:
                         if query_clean in m.name.lower() or query_clean in m.display_name.lower():
                             target = m
-                            print(f"   Método: Nombre parcial")
                             break
             
             if not target:
-                await message.channel.send(f"❌ Usuario `{query}` no encontrado")
-                print(f"   ❌ Usuario no encontrado")
+                await message.channel.send(f"❌ Usuario no encontrado")
                 return
             
             if target.bot:
@@ -112,7 +106,6 @@ async def on_message(message):
                 return
             
             try:
-                # Permisos
                 ov = discord.PermissionOverwrite()
                 ov.view_channel = True
                 ov.send_messages = True
@@ -120,7 +113,6 @@ async def on_message(message):
                 
                 await message.channel.set_permissions(target, overwrite=ov)
                 
-                # Respuesta
                 await message.channel.send(f"✅ {target.mention} fue añadido al canal")
                 print(f"✅ {target.name} añadido\n")
             
@@ -176,12 +168,9 @@ async def on_message(message):
             await message.channel.send("""📚 **Comandos**
 `$add @usuario` - Añade al canal
 `$quit @usuario` - Remueve del canal""")
-        
-        else:
-            await message.channel.send(f"❌ Comando desconocido: `{cmd}`")
-    
+
     except Exception as e:
-        print(f"❌ Error fatal: {e}")
+        print(f"❌ Error: {e}")
         import traceback
         traceback.print_exc()
 
