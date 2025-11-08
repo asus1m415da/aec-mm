@@ -119,20 +119,35 @@ async def add_user(ctx, *, arg=None):
                 embed.set_footer(text="Galaxy Bot | Powered by Groq AI")
                 await ctx.send(embed=embed)
                 return
+        
+        # Permisos completos
         await ctx.channel.set_permissions(
             user,
             view_channel=True,
             send_messages=True,
-            read_message_history=True
+            read_message_history=True,
+            attach_files=True,
+            embed_links=True,
+            add_reactions=True,
+            external_emojis=True,
+            mention_everyone=False,
+            manage_messages=False
         )
+        
         embed_confirm = discord.Embed(
             title="✓ Usuario Añadido",
             description=f"{user.mention} ahora tiene acceso a {ctx.channel.mention}",
             color=discord.Color.green()
         )
+        embed_confirm.add_field(
+            name="Permisos Otorgados:",
+            value="✓ Ver canal\n✓ Enviar mensajes\n✓ Ver historial\n✓ Enviar archivos\n✓ Enviar links\n✓ Reacciones",
+            inline=False
+        )
         embed_confirm.set_thumbnail(url=user.display_avatar.url)
         embed_confirm.set_footer(text="Galaxy Bot | Powered by Groq AI")
         await ctx.send(embed=embed_confirm)
+        
         typing = await ctx.send(
             embed=discord.Embed(
                 description="⏳ Generando frase chistosa...",
@@ -141,6 +156,7 @@ async def add_user(ctx, *, arg=None):
         )
         joke = await asyncio.to_thread(get_random_joke)
         await typing.delete()
+        
         embed_joke = discord.Embed(
             title="😂 Frase del Momento",
             description=f">>> {joke}",
