@@ -189,24 +189,6 @@ async def add_user(ctx, *, arg=None):
         embed.set_footer(text="Galaxy Bot | Powered by Groq AI")
         await ctx.send(embed=embed)
 
-@bot.command(name="joke")
-async def joke_command(ctx):
-    typing = await ctx.send(
-        embed=discord.Embed(
-            description="⏳ Pensando algo divertido...",
-            color=discord.Color.yellow()
-        )
-    )
-    joke = await asyncio.to_thread(get_random_joke)
-    await typing.delete()
-    embed = discord.Embed(
-        title="😂 Frase Chistosa",
-        description=f">>> {joke}",
-        color=discord.Color.random()
-    )
-    embed.set_footer(text="Galaxy Bot | openai/gpt-oss-120b")
-    await ctx.send(embed=embed)
-
 @bot.command(name="comandos")
 async def comandos_command(ctx):
     embed = discord.Embed(
