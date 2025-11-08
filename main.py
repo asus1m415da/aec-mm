@@ -1,187 +1,195 @@
-# Cat's Discord Bot - Versión Para discord.py-self v4.2
 import discord
+from discord.ext import commands
 import os
+import re
 from dotenv import load_dotenv
-
-print("\n🚀 Iniciando bot...\n")
+from groq import Groq
+import asyncio
 
 load_dotenv()
 
-# ✅ SIN INTENTS - discord.py-self no los soporta
-client = discord.Client(chunk_guilds_at_startup=False)
+TOKEN = os.getenv("DISCORD_TOKEN")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-# 🔐 4 ROLES AUTORIZADOS
-AUTHORIZED_ROLES = [
-    1427705211186839672,
-    1330597790660694047,
-    1329516197175103651,
-    1330356239103688835
-]
+if not TOKEN or not GROQ_API_KEY:
+    print("❌ ERROR: Falta DISCORD_TOKEN o GROQ_API_KEY en .env")
+    exit(1)
 
-@client.event
+intents = discord.Intents.default()
+intents.message_content = True
+intents.guilds = True
+intents.members = True
+
+bot = commands.Bot(command_prefix="$", self_bot=True, intents=intents)
+
+def get_random_joke():
+    """Genera una frase chistosa usando Groq con openai/gpt-oss-120b"""
+    try:
+        client = Groq()
+        completion = client.chat.completions.create(
+            model="openai/gpt-oss-120b",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "tu eres Galaxy Bot, tu dices frases chistosas ramdoms, solo dices directo la frase porfavor"
+                },
+                {
+                    "role": "user",
+                    "content": ""
+                }
+            ],
+            temperature=2,
+            max_completion_tokens=65536,
+            top_p=1,
+            reasoning_effort="high",
+            stream=True,
+            stop=None,
+            tools=[{"type": "browser_search"}]
+        )
+        
+        joke = ""
+        for chunk in completion:
+            if chunk.choices[0].delta.content:
+                joke += chunk.choices[0].delta.content
+        
+        return joke.strip()
+    except Exception as e:
+        print(f"⚠️ Error Groq: {e}")
+        return "¡Ups! Mi cerebro de IA necesita un café ☕"
+
+def parse_user_input(arg):
+    """Parsea el input para extraer ID, mention o username"""
+    
+    if re.match(r'^\d{15,20}$', arg):
+        return int(arg), "id"
+    
+    if arg.startswith("<@"):
+        match = re.search(r'<@!?(\d+)>', arg)
+        if match:
+            return int(match.group(1)), "mention"
+    
+    if re.match(r'^[a-zA-Z0-9_]{2,32}$', arg):
+        return arg, "username"
+    
+    return None, None
+
+@bot.event
 async def on_ready():
-    print(f'✅ {client.user}')
-    print(f'🔐 {len(AUTHORIZED_ROLES)} roles')
-    print('📡 Listo\n')
+    print(f"╔════════════════════════════════════╗")
+    print(f"║  🌌 Galaxy Bot Conectado 🌌      ║")
+    print(f"║  Usuario: {bot.user}              ║")
+    print(f"║  Modelo: openai/gpt-oss-120b     ║")
+    print(f"╚════════════════════════════════════╝")
 
-@client.event
-async def on_message(message):
-    # Ignorar bots
-    if message.author.bot:
+@bot.command(name="add")
+async def add_user(ctx, *, arg=None):
+    """Añade un usuario al canal con una frase chistosa 🎉"""
+    
+    if not arg:
+        embed = discord.Embed(
+            title="❌ Uso Incorrecto",
+            description="Debes especificar un usuario",
+            color=discord.Color.red()
+        )
+        embed.add_field(
+            name="Formatos válidos:",
+            value="`$add @usuario`\n`$add usuario`\n`$add 123456789`",
+            inline=False
+        )
+        await ctx.send(embed=embed)
         return
     
-    # Solo $ commands
-    if not message.content.startswith('$'):
-        return
+    arg = arg.strip()
+    user_data, user_type = parse_user_input(arg)
     
-    # Solo en servidores
-    if not message.guild:
+    if not user_data:
+        await ctx.send("❌ Formato inválido. Intenta: `@usuario`, `usuario` o `ID`")
         return
     
     try:
-        # Obtener miembro
-        member = message.guild.get_member(message.author.id)
-        if not member:
-            print(f"❌ No se encontró miembro para {message.author}")
-            return
-        
-        # ✅ DEBUG: Mostrar roles del usuario
-        user_roles = [r.id for r in member.roles]
-        print(f"👤 {message.author} - Roles: {user_roles}")
-        print(f"   Comando: {message.content}")
-        
-        # Verificar si tiene ALGUNO de los roles autorizados
-        tiene_rol = any(role_id in user_roles for role_id in AUTHORIZED_ROLES)
-        
-        if not tiene_rol:
-            print(f"❌ {message.author} no tiene permisos")
-            await message.channel.send("❌ No tienes permisos")
-            return
-        
-        print(f"✅ {message.author} AUTORIZADO")
-        
-        cmd = message.content.lower().split()[0]
-        
-        # COMANDO: $add
-        if cmd == '$add':
-            parts = message.content.split(maxsplit=1)
-            
-            if len(parts) < 2:
-                await message.channel.send("❌ Uso: `$add @usuario`")
+        if user_type == "id":
+            user = await bot.fetch_user(user_data)
+        elif user_type == "mention":
+            user = await bot.fetch_user(user_data)
+        elif user_type == "username":
+            user = discord.utils.find(
+                lambda m: m.name == user_data,
+                ctx.guild.members
+            )
+            if not user:
+                await ctx.send(f"❌ Usuario `{user_data}` no encontrado")
                 return
-            
-            target = None
-            query = parts[1].strip()
-            
-            # Mención
-            if message.mentions:
-                target = message.mentions[0]
-            # ID
-            elif query.isdigit():
-                try:
-                    target = await message.guild.fetch_member(int(query))
-                except:
-                    pass
-            # Nombre
-            else:
-                query_clean = query.replace('@', '').lower().strip()
-                
-                for m in message.guild.members:
-                    if m.name.lower() == query_clean or m.display_name.lower() == query_clean:
-                        target = m
-                        break
-                
-                if not target:
-                    for m in message.guild.members:
-                        if query_clean in m.name.lower() or query_clean in m.display_name.lower():
-                            target = m
-                            break
-            
-            if not target:
-                await message.channel.send(f"❌ Usuario no encontrado")
-                return
-            
-            if target.bot:
-                await message.channel.send("❌ No puedo añadir bots")
-                return
-            
-            try:
-                ov = discord.PermissionOverwrite()
-                ov.view_channel = True
-                ov.send_messages = True
-                ov.read_message_history = True
-                
-                await message.channel.set_permissions(target, overwrite=ov)
-                
-                await message.channel.send(f"✅ {target.mention} fue añadido al canal")
-                print(f"✅ {target.name} añadido\n")
-            
-            except Exception as e:
-                await message.channel.send(f"❌ Error: {str(e)}")
-                print(f"❌ Error: {e}\n")
         
-        # COMANDO: $quit
-        elif cmd == '$quit':
-            parts = message.content.split(maxsplit=1)
-            
-            if len(parts) < 2:
-                await message.channel.send("❌ Uso: `$quit @usuario`")
-                return
-            
-            target = None
-            query = parts[1].strip()
-            
-            if message.mentions:
-                target = message.mentions[0]
-            elif query.isdigit():
-                try:
-                    target = await message.guild.fetch_member(int(query))
-                except:
-                    pass
-            else:
-                query_clean = query.replace('@', '').lower().strip()
-                for m in message.guild.members:
-                    if m.name.lower() == query_clean or m.display_name.lower() == query_clean:
-                        target = m
-                        break
-            
-            if not target:
-                await message.channel.send(f"❌ Usuario no encontrado")
-                return
-            
-            try:
-                ov = discord.PermissionOverwrite()
-                ov.view_channel = False
-                ov.send_messages = False
-                
-                await message.channel.set_permissions(target, overwrite=ov)
-                
-                await message.channel.send(f"✅ {target.mention} fue removido del canal")
-                print(f"✅ {target.name} removido\n")
-            
-            except Exception as e:
-                await message.channel.send(f"❌ Error: {str(e)}")
-                print(f"❌ Error: {e}\n")
+        # Añadir usuario al canal
+        await ctx.channel.set_permissions(
+            user,
+            view_channel=True,
+            send_messages=True,
+            read_message_history=True
+        )
         
-        # COMANDO: $help
-        elif cmd == '$help':
-            await message.channel.send("""📚 **Comandos**
-`$add @usuario` - Añade al canal
-`$quit @usuario` - Remueve del canal""")
-
+        # 1️⃣ Enviar confirmación
+        embed_confirm = discord.Embed(
+            title="✓ Usuario Añadido",
+            description=f"{user.mention} ahora tiene acceso a {ctx.channel.mention}",
+            color=discord.Color.green()
+        )
+        await ctx.send(embed=embed_confirm)
+        
+        # 2️⃣ Generar y enviar frase
+        typing = await ctx.send("⏳ Generando frase chistosa...")
+        joke = await asyncio.to_thread(get_random_joke)
+        await typing.delete()
+        
+        embed_joke = discord.Embed(
+            title="😂 Frase del Momento",
+            description=f">>> {joke}",
+            color=discord.Color.random()
+        )
+        embed_joke.set_footer(text="Galaxy Bot | openai/gpt-oss-120b | Browser Search ✓")
+        await ctx.send(embed=embed_joke)
+        
+    except discord.NotFound:
+        await ctx.send("❌ Usuario no encontrado en Discord")
+    except discord.Forbidden:
+        await ctx.send("❌ No tengo permisos para modificar este canal")
     except Exception as e:
-        print(f"❌ Error: {e}")
-        import traceback
-        traceback.print_exc()
+        await ctx.send(f"❌ Error: {str(e)}")
+
+@bot.command(name="joke")
+async def joke_command(ctx):
+    """Obtiene una frase chistosa random 🎭"""
+    typing = await ctx.send("⏳ Pensando con GPT-OSS...")
+    joke = await asyncio.to_thread(get_random_joke)
+    await typing.delete()
+    
+    embed = discord.Embed(
+        title="😂 Frase Chistosa",
+        description=f">>> {joke}",
+        color=discord.Color.random()
+    )
+    embed.set_footer(text="Galaxy Bot | openai/gpt-oss-120b")
+    await ctx.send(embed=embed)
+
+@bot.command(name="help")
+async def help_command(ctx):
+    """Muestra los comandos disponibles"""
+    embed = discord.Embed(
+        title="📚 Comandos Galaxy Bot",
+        color=discord.Color.blue()
+    )
+    embed.add_field(
+        name="$add",
+        value="Añade usuario + muestra frase\nEjemplos: `$add @user` | `$add user` | `$add 123456789`",
+        inline=False
+    )
+    embed.add_field(
+        name="$joke",
+        value="Genera una frase chistosa random",
+        inline=False
+    )
+    embed.set_footer(text="Galaxy Bot | Powered by openai/gpt-oss-120b")
+    await ctx.send(embed=embed)
 
 if __name__ == "__main__":
-    token = os.getenv('DISCORD_TOKEN')
-    
-    if not token:
-        print("❌ DISCORD_TOKEN falta")
-        exit(1)
-    
-    try:
-        client.run(token)
-    except Exception as e:
-        print(f"❌ {e}")
+    bot.run(TOKEN)
