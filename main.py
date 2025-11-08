@@ -11,11 +11,12 @@ load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-if not TOKEN or not GROQ_API_KEY:
-    print("❌ ERROR: Falta DISCORD_TOKEN o GROQ_API_KEY en .env")
-    exit(1)
+intents = discord.Intents.default()
+intents.message_content = True
+intents.guilds = True
+intents.members = True
 
-bot = commands.Bot(command_prefix="$", help_command=None)
+bot = commands.Bot(command_prefix="$", help_command=None, intents=intents)
 
 def get_random_joke():
     """Genera una frase chistosa usando Groq con openai/gpt-oss-120b"""
@@ -53,34 +54,22 @@ def get_random_joke():
         return "¡Ups! Mi cerebro de IA necesita un café ☕"
 
 def parse_user_input(arg):
-    """Parsea el input para extraer ID, mention o username"""
-    
     if re.match(r'^\d{15,20}$', arg):
         return int(arg), "id"
-    
     if arg.startswith("<@"):
         match = re.search(r'<@!?(\d+)>', arg)
         if match:
             return int(match.group(1)), "mention"
-    
     if re.match(r'^[a-zA-Z0-9_]{2,32}$', arg):
         return arg, "username"
-    
     return None, None
 
 @bot.event
 async def on_ready():
-    print(f"╔════════════════════════════════════╗")
-    print(f"║  🌌 Galaxy Bot Conectado 🌌      ║")
-    print(f"║  Usuario: {bot.user}              ║")
-    print(f"║  Servidores: {len(bot.guilds)}                  ║")
-    print(f"║  Modelo: openai/gpt-oss-120b     ║")
-    print(f"╚════════════════════════════════════╝")
+    print(f"🌌 Galaxy Bot listo como {bot.user}")
 
 @bot.command(name="add")
 async def add_user(ctx, *, arg=None):
-    """Añade un usuario al canal con una frase chistosa 🎉"""
-    
     if not arg:
         embed = discord.Embed(
             title="❌ Uso Incorrecto",
@@ -95,10 +84,8 @@ async def add_user(ctx, *, arg=None):
         embed.set_footer(text="Galaxy Bot | Powered by Groq AI")
         await ctx.send(embed=embed)
         return
-    
     arg = arg.strip()
     user_data, user_type = parse_user_input(arg)
-    
     if not user_data:
         embed = discord.Embed(
             title="❌ Formato Inválido",
@@ -113,7 +100,6 @@ async def add_user(ctx, *, arg=None):
         embed.set_footer(text="Galaxy Bot | Powered by Groq AI")
         await ctx.send(embed=embed)
         return
-    
     try:
         if user_type == "id":
             user = await bot.fetch_user(user_data)
@@ -133,16 +119,12 @@ async def add_user(ctx, *, arg=None):
                 embed.set_footer(text="Galaxy Bot | Powered by Groq AI")
                 await ctx.send(embed=embed)
                 return
-        
-        # Añadir usuario al canal
         await ctx.channel.set_permissions(
             user,
             view_channel=True,
             send_messages=True,
             read_message_history=True
         )
-        
-        # 1️⃣ Enviar confirmación
         embed_confirm = discord.Embed(
             title="✓ Usuario Añadido",
             description=f"{user.mention} ahora tiene acceso a {ctx.channel.mention}",
@@ -151,8 +133,6 @@ async def add_user(ctx, *, arg=None):
         embed_confirm.set_thumbnail(url=user.display_avatar.url)
         embed_confirm.set_footer(text="Galaxy Bot | Powered by Groq AI")
         await ctx.send(embed=embed_confirm)
-        
-        # 2️⃣ Generar y enviar frase
         typing = await ctx.send(
             embed=discord.Embed(
                 description="⏳ Generando frase chistosa...",
@@ -161,7 +141,6 @@ async def add_user(ctx, *, arg=None):
         )
         joke = await asyncio.to_thread(get_random_joke)
         await typing.delete()
-        
         embed_joke = discord.Embed(
             title="😂 Frase del Momento",
             description=f">>> {joke}",
@@ -169,7 +148,6 @@ async def add_user(ctx, *, arg=None):
         )
         embed_joke.set_footer(text="Galaxy Bot | openai/gpt-oss-120b | Browser Search ✓")
         await ctx.send(embed=embed_joke)
-        
     except discord.NotFound:
         embed = discord.Embed(
             title="❌ Usuario No Encontrado",
@@ -197,7 +175,6 @@ async def add_user(ctx, *, arg=None):
 
 @bot.command(name="joke")
 async def joke_command(ctx):
-    """Obtiene una frase chistosa random 🎭"""
     typing = await ctx.send(
         embed=discord.Embed(
             description="⏳ Pensando algo divertido...",
@@ -206,7 +183,6 @@ async def joke_command(ctx):
     )
     joke = await asyncio.to_thread(get_random_joke)
     await typing.delete()
-    
     embed = discord.Embed(
         title="😂 Frase Chistosa",
         description=f">>> {joke}",
@@ -215,31 +191,15 @@ async def joke_command(ctx):
     embed.set_footer(text="Galaxy Bot | openai/gpt-oss-120b")
     await ctx.send(embed=embed)
 
-@bot.command(name="info")
-async def info_command(ctx):
-    """Muestra la información de comandos"""
+@bot.command(name="comandos")
+async def comandos_command(ctx):
     embed = discord.Embed(
         title="📚 Comandos Galaxy Bot",
-        description="Bot para gestionar permisos de canales con frases chistosas",
+        description="Bot para gestionar permisos de canales con frases chistosas.\n\n**$add** — Añade usuario al canal.\n**$joke** — Frase chistosa random.\n**$comandos** — Muestra este mensaje.\n",
         color=discord.Color.blue()
     )
-    embed.add_field(
-        name="$add",
-        value="Añade un usuario al canal y muestra una frase\n**Ejemplos:** `$add @user` | `$add user` | `$add 123456789`",
-        inline=False
-    )
-    embed.add_field(
-        name="$joke",
-        value="Genera una frase chistosa random",
-        inline=False
-    )
-    embed.add_field(
-        name="$info",
-        value="Muestra esta información",
-        inline=False
-    )
-    embed.set_thumbnail(url=bot.user.display_avatar.url)
     embed.set_footer(text="Galaxy Bot | Powered by openai/gpt-oss-120b")
+    embed.set_thumbnail(url=bot.user.display_avatar.url)
     await ctx.send(embed=embed)
 
 if __name__ == "__main__":
