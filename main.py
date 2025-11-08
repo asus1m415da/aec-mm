@@ -10,6 +10,7 @@ load_dotenv()
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+GUILD_ID = 1329514510415040663
 
 if not TOKEN or not GROQ_API_KEY:
     print("❌ ERROR: Falta DISCORD_TOKEN o GROQ_API_KEY en .env")
@@ -73,12 +74,26 @@ async def on_ready():
     print(f"╔════════════════════════════════════╗")
     print(f"║  🌌 Galaxy Bot Conectado 🌌      ║")
     print(f"║  Usuario: {bot.user}              ║")
+    print(f"║  Servidor: {GUILD_ID}            ║")
     print(f"║  Modelo: openai/gpt-oss-120b     ║")
     print(f"╚════════════════════════════════════╝")
+
+@bot.event
+async def on_message(message):
+    """Procesa mensajes solo del servidor específico"""
+    
+    # Solo escuchar en el servidor indicado
+    if message.guild is None or message.guild.id != GUILD_ID:
+        return
+    
+    print(f"[MSG] {message.author}: {message.content}")
+    await bot.process_commands(message)
 
 @bot.command(name="add")
 async def add_user(ctx, *, arg=None):
     """Añade un usuario al canal con una frase chistosa 🎉"""
+    
+    print(f"[CMD] $add ejecutado por {ctx.author}")
     
     if not arg:
         embed = discord.Embed(
@@ -150,6 +165,7 @@ async def add_user(ctx, *, arg=None):
         await ctx.send("❌ No tengo permisos para modificar este canal")
     except Exception as e:
         await ctx.send(f"❌ Error: {str(e)}")
+        print(f"[ERROR] {e}")
 
 @bot.command(name="joke")
 async def joke_command(ctx):
