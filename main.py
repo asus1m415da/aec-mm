@@ -35,7 +35,7 @@ def get_random_joke():
                 }
             ],
             temperature=2,
-            max_completion_tokens=65536,
+            max_completion_tokens=2536,
             top_p=1,
             reasoning_effort="high",
             stream=True,
