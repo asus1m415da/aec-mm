@@ -15,7 +15,7 @@ if not TOKEN or not GROQ_API_KEY:
     print("❌ ERROR: Falta DISCORD_TOKEN o GROQ_API_KEY en .env")
     exit(1)
 
-bot = commands.Bot(command_prefix="$", self_bot=True)
+bot = commands.Bot(command_prefix="$", self_bot=True, help_command=None)
 
 def get_random_joke():
     """Genera una frase chistosa usando Groq con openai/gpt-oss-120b"""
@@ -166,9 +166,9 @@ async def joke_command(ctx):
     embed.set_footer(text="Galaxy Bot | openai/gpt-oss-120b")
     await ctx.send(embed=embed)
 
-@bot.command(name="help")
-async def help_command(ctx):
-    """Muestra los comandos disponibles"""
+@bot.command(name="info")
+async def info_command(ctx):
+    """Muestra la información de comandos"""
     embed = discord.Embed(
         title="📚 Comandos Galaxy Bot",
         color=discord.Color.blue()
