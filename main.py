@@ -15,12 +15,7 @@ if not TOKEN or not GROQ_API_KEY:
     print("❌ ERROR: Falta DISCORD_TOKEN o GROQ_API_KEY en .env")
     exit(1)
 
-intents = discord.Intents.default()
-intents.message_content = True
-intents.guilds = True
-intents.members = True
-
-bot = commands.Bot(command_prefix="$", self_bot=True, intents=intents)
+bot = commands.Bot(command_prefix="$", self_bot=True)
 
 def get_random_joke():
     """Genera una frase chistosa usando Groq con openai/gpt-oss-120b"""
