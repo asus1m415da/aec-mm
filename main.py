@@ -27,7 +27,7 @@ def get_random_joke():
             messages=[
                 {
                     "role": "system",
-                    "content": "tu eres Galaxy Bot, tu dices frases chistosas ramdoms, solo dices directo la frase porfavor"
+                    "content": "tu dices frases chistosas ramdoms de cualquier cosa, que hagan reir y que no esten quemadas, solo di la frase directa y nada mas"
                 },
                 {
                     "role": "user",
@@ -35,7 +35,7 @@ def get_random_joke():
                 }
             ],
             temperature=2,
-            max_completion_tokens=2536,
+            max_completion_tokens=1536,
             top_p=1,
             reasoning_effort="high",
             stream=True,
