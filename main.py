@@ -69,6 +69,7 @@ async def on_ready():
     print(f"🌌 Galaxy Bot listo como {bot.user}")
 
 @bot.command(name="add")
+@commands.has_any_role("MIDDLEMAN", 1427705211186839672)
 async def add_user(ctx, *, arg=None):
     if not arg:
         embed = discord.Embed(
@@ -189,11 +190,28 @@ async def add_user(ctx, *, arg=None):
         embed.set_footer(text="Galaxy Bot | Powered by Groq AI")
         await ctx.send(embed=embed)
 
+# Manejo de error cuando alguien sin el rol intenta usar el comando
+@add_user.error
+async def add_user_error(ctx, error):
+    if isinstance(error, commands.MissingAnyRole):
+        embed = discord.Embed(
+            title="🔒 Acceso Denegado",
+            description="No tienes permisos para usar este comando",
+            color=discord.Color.red()
+        )
+        embed.add_field(
+            name="Rol Requerido:",
+            value="**MIDDLEMAN**",
+            inline=False
+        )
+        embed.set_footer(text="Galaxy Bot | Powered by Groq AI")
+        await ctx.send(embed=embed)
+
 @bot.command(name="comandos")
 async def comandos_command(ctx):
     embed = discord.Embed(
         title="📚 Comandos Galaxy Bot",
-        description="Bot para gestionar permisos de canales con frases chistosas.\n\n**$add** — Añade usuario al canal.\n**$joke** — Frase chistosa random.\n**$comandos** — Muestra este mensaje.\n",
+        description="Bot para gestionar permisos de canales con frases chistosas.\n\n**$add** — Añade usuario al canal (Solo MIDDLEMAN).\n**$joke** — Frase chistosa random.\n**$comandos** — Muestra este mensaje.\n",
         color=discord.Color.blue()
     )
     embed.set_footer(text="Galaxy Bot | Powered by openai/gpt-oss-120b")
