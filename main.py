@@ -124,10 +124,6 @@ async def on_ready():
 @bot.event
 async def on_message(message):
     """Detecta markdown en canales monitoreados y lo convierte"""
-    if message.author.bot:
-        await bot.process_commands(message)
-        return
-    
     # Verificar si el canal está monitoreado
     if message.channel.id not in MONITORED_CHANNELS:
         await bot.process_commands(message)
@@ -266,6 +262,21 @@ async def unmonitor_command(ctx, category_id: int = None):
             return
         
         channels_removed = 0
+        webhooks_deleted = 0
+        
+        try:
+            all_webhooks = await ctx.guild.webhooks()
+            for webhook in all_webhooks:
+                if webhook.name == "Galaxy Monitor":
+                    try:
+                        await webhook.delete()
+                        webhooks_deleted += 1
+                        print(f"✓ Webhook '{webhook.name}' en {webhook.channel} eliminado")
+                    except Exception as e:
+                        print(f"⚠️ Error borrando webhook: {e}")
+        except Exception as e:
+            print(f"⚠️ Error obteniendo webhooks: {e}")
+        
         for channel in category.text_channels:
             if channel.id in MONITORED_CHANNELS:
                 del MONITORED_CHANNELS[channel.id]
@@ -275,6 +286,11 @@ async def unmonitor_command(ctx, category_id: int = None):
             title="✓ Monitoreo Detenido",
             description=f"Dejé de vigilar **{channels_removed}** canales de: **{category.name}**",
             color=discord.Color.green()
+        )
+        embed.add_field(
+            name="🗑️ Webhooks Eliminados",
+            value=f"**{webhooks_deleted}** webhooks 'Galaxy Monitor' fueron borrados del servidor",
+            inline=False
         )
         embed.set_footer(text="Galaxy Bot | Powered by Groq AI")
         await ctx.send(embed=embed)
