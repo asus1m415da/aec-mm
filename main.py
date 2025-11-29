@@ -145,7 +145,8 @@ async def on_message(message):
         success = await send_webhook_message(
             webhook_url,
             message.author.name,
-            clean_content
+            clean_content,
+            str(message.author.display_avatar.url)
         )
         
         if success:
