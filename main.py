@@ -29,7 +29,6 @@ MARKDOWN_PATTERNS = {
     r'~~(.*?)~~': r'\1',      # ~~strikethrough~~ → strikethrough
     r'`(.*?)`': r'\1',        # `code` → code
     r'```[\w]*\n(.*?)\n```': r'\1',  # ```code block``` → code block
-    r'> (.*?)': r'\1',        # > quote → quote
 }
 
 def strip_markdown(text):
@@ -138,7 +137,7 @@ async def on_message(message):
     
     # Detectar si el mensaje tiene markdown
     has_markdown = any(pattern in message.content for pattern in [
-        '**', '*', '__', '_', '~~', '`', '```', '> ', '[', ']', '(', ')'
+        '**', '__', '~~', '`', '```'
     ])
     
     if has_markdown:
