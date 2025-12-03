@@ -9,7 +9,7 @@ from groq import Groq
 from datetime import datetime
 
 # ==========================================
-# 🛠️ CONFIGURACIÓN Y CONSTANTES
+# ⚙️ CONFIGURACIÓN
 # ==========================================
 
 load_dotenv()
@@ -18,243 +18,259 @@ load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-# IDs del Servidor
+# IDs
 try:
     GUILD_ID = int(os.getenv("GUILD_ID"))
     CONFESSION_CHANNEL_ID = int(os.getenv("CONFESSION_CHANNEL_ID"))
     LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID"))
-    MM_ROLE_ID = int(os.getenv("MM_ROLE_ID"))           # Rol para $add
-    MODERATOR_ROLE_ID = int(os.getenv("MODERATOR_ROLE_ID")) # Rol para Logs
+    MM_ROLE_ID = int(os.getenv("MM_ROLE_ID"))           # Rol para comando $add
+    MODERATOR_ROLE_ID = int(os.getenv("MODERATOR_ROLE_ID")) # Rol para Aprobar Logs
 except (TypeError, ValueError):
-    print("❌ ERROR: Faltan IDs en el archivo .env. Revisa tu configuración.")
+    print("❌ ERROR FATAL: Faltan IDs en el archivo .env")
     exit()
 
-# Paleta de Colores (Theme)
-class Theme:
-    DARK = 0x2B2D31       # Fondo oscuro Discord
-    SUCCESS = 0x43B581    # Verde
-    ERROR = 0xF04747      # Rojo
-    WARN = 0xFAA61A       # Naranja
-    MM_COLOR = 0x5865F2   # Azul Blurple (Middleman)
-    GALAXY = 0x6A0DAD     # Morado
-    BAN = 0x000000        # Negro
+# Paleta de Colores Aesthetic
+class Colors:
+    DARK = 0x2B2D31       # Fondo Discord (Para confesiones anónimas)
+    LOG_PENDING = 0xFAA61A # Naranja (Pendiente)
+    LOG_APPROVE = 0x43B581 # Verde (Aprobado)
+    LOG_DENY = 0xF04747    # Rojo (Denegado)
+    LOG_BAN = 0x000000     # Negro (Ban)
+    MM_SUCCESS = 0x5865F2  # Azul (Middleman)
 
+# Configuración del Bot
 intents = discord.Intents.default()
 intents.message_content = True
 intents.guilds = True
 intents.members = True
 
-bot = commands.Bot(command_prefix="$", help_command=None, intents=intents)
+class GalaxyBot(commands.Bot):
+    def __init__(self):
+        super().__init__(command_prefix="$", help_command=None, intents=intents)
+
+    async def setup_hook(self):
+        # Esto hace que el botón "Confesar" funcione incluso si reinicias el bot
+        self.add_view(PublicConfessionView())
+        print("✅ Vistas persistentes cargadas.")
+
+bot = GalaxyBot()
 
 # ==========================================
-# 💾 SISTEMA DE DATOS (JSON)
+# 📂 BASE DE DATOS (JSON)
 # ==========================================
 
-def init_files():
+def check_files():
     if not os.path.exists("count.json"):
         with open("count.json", "w") as f: json.dump({"count": 1}, f)
     if not os.path.exists("blacklist.json"):
         with open("blacklist.json", "w") as f: json.dump({"banned": []}, f)
 
-def get_count():
-    with open("count.json", "r") as f: return json.load(f).get("count", 1)
-
-def inc_count():
-    c = get_count()
-    with open("count.json", "w") as f: json.dump({"count": c + 1}, f)
+def get_next_id():
+    with open("count.json", "r") as f: 
+        c = json.load(f).get("count", 1)
+    with open("count.json", "w") as f: 
+        json.dump({"count": c + 1}, f)
     return c
 
-def is_banned(uid):
-    with open("blacklist.json", "r") as f: return uid in json.load(f).get("banned", [])
+def is_user_banned(user_id):
+    with open("blacklist.json", "r") as f: 
+        return user_id in json.load(f).get("banned", [])
 
-def ban_user(uid):
+def ban_user_id(user_id):
     with open("blacklist.json", "r+") as f:
-        d = json.load(f)
-        if uid not in d["banned"]:
-            d["banned"].append(uid)
-            f.seek(0); json.dump(d, f); f.truncate()
+        data = json.load(f)
+        if user_id not in data["banned"]:
+            data["banned"].append(user_id)
+            f.seek(0); json.dump(data, f); f.truncate()
 
 # ==========================================
-# 🧠 IA (GROQ)
+# 🧩 COMPONENTES UI (Botones y Modales)
 # ==========================================
 
-def get_random_joke():
-    try:
-        client = Groq(api_key=GROQ_API_KEY)
-        completion = client.chat.completions.create(
-            model="openai/gpt-oss-120b", # O usa 'llama3-70b-8192' si ese no va
-            messages=[{"role": "system", "content": "Eres un bot gracioso. Di una frase corta y chistosa en español."}, 
-                      {"role": "user", "content": "di algo"}],
-            temperature=1.2, max_tokens=100
-        )
-        return completion.choices[0].message.content.strip()
-    except: return "Mi cerebro IA se reinició... 🤖"
+# --- 1. VISTA PÚBLICA (El botón que ve todo el mundo) ---
+class PublicConfessionView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None) # Persistente para siempre
 
-def parse_user(arg, guild):
-    arg = arg.strip()
-    if re.match(r'^\d{17,20}$', arg): return guild.get_member(int(arg))
-    if arg.startswith("<@"): 
-        mid = re.search(r'\d+', arg)
-        if mid: return guild.get_member(int(mid.group()))
-    return discord.utils.find(lambda m: m.name == arg, guild.members)
+    @discord.ui.button(label="Enviar Confesión Anónima", style=discord.ButtonStyle.primary, emoji="📩", custom_id="public_confess_btn")
+    async def open_modal(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Abrimos el modal
+        await interaction.response.send_modal(ConfessionModal())
 
-# ==========================================
-# 🛡️ SISTEMA DE CONFESIONES (UI)
-# ==========================================
-
-class DenyReasonModal(discord.ui.Modal, title="Motivo del Rechazo"):
-    reason = discord.ui.TextInput(label="Razón", style=discord.TextStyle.paragraph, required=True)
+# --- 2. EL MODAL (Formulario) ---
+class ConfessionModal(discord.ui.Modal, title="🤫 Tu Secreto es Seguro"):
     
-    def __init__(self, embed_log, author):
-        super().__init__()
-        self.embed_log = embed_log
-        self.author = author
+    confession = discord.ui.TextInput(
+        label="Escribe tu confesión",
+        style=discord.TextStyle.paragraph,
+        placeholder="Escribe aquí... (Nadie sabrá que fuiste tú)",
+        min_length=5,
+        max_length=3500,
+        required=True
+    )
+    
+    image = discord.ui.TextInput(
+        label="Imagen (Opcional)",
+        style=discord.TextStyle.short,
+        placeholder="https://i.imgur.com/...",
+        required=False
+    )
 
     async def on_submit(self, interaction: discord.Interaction):
-        self.embed_log.color = Theme.ERROR
-        self.embed_log.set_field_at(0, name="📊 Estado", value=f"🔴 **DENEGADO**\n👮 Por: {interaction.user.mention}\n📝 Razón: {self.reason.value}", inline=False)
-        await interaction.message.edit(embed=self.embed_log, view=None)
-        try: await self.author.send(f"❌ Tu confesión fue denegada: {self.reason.value}")
-        except: pass
-        await interaction.response.send_message("✅ Denegado con motivo.", ephemeral=True)
+        # 1. Verificar Ban
+        if is_user_banned(interaction.user.id):
+            return await interaction.response.send_message("⛔ **Acceso Denegado:** Has sido vetado del sistema de confesiones.", ephemeral=True)
 
-class AdminView(discord.ui.View):
-    def __init__(self, content, img, author, number):
+        # 2. Capturar datos
+        text_content = self.confession.value
+        img_content = self.image.value if self.image.value else None
+        conf_id = get_next_id()
+        
+        log_channel = interaction.guild.get_channel(LOG_CHANNEL_ID)
+
+        # 3. Crear Embed de Log (Estilo Expediente)
+        embed = discord.Embed(
+            description=f"📄 **Contenido:**\n{text_content}",
+            color=Colors.LOG_PENDING,
+            timestamp=datetime.now()
+        )
+        embed.set_author(name=f"Confesión Pendiente #{conf_id}", icon_url="https://cdn-icons-png.flaticon.com/512/1022/1022300.png")
+        
+        # Datos del usuario (Solo para admins)
+        embed.add_field(name="👤 Autor", value=f"{interaction.user.mention}\n`{interaction.user.id}`", inline=True)
+        embed.add_field(name="📅 Antigüedad", value=f"<t:{int(interaction.user.created_at.timestamp())}:R>", inline=True)
+        embed.set_thumbnail(url=interaction.user.display_avatar.url)
+        
+        if img_content:
+            embed.set_image(url=img_content)
+            embed.set_footer(text="⚠️ Contiene imagen adjunta")
+
+        # 4. Enviar a Logs con Botones de Admin
+        view = AdminLogView(text_content, img_content, interaction.user, conf_id)
+        await log_channel.send(embed=embed, view=view)
+
+        await interaction.response.send_message(f"✅ **Confesión #{conf_id} recibida.** Esperando aprobación.", ephemeral=True)
+
+# --- 3. VISTA DE ADMIN (Botones de Aprobar/Denegar) ---
+class AdminLogView(discord.ui.View):
+    def __init__(self, content, image, author, conf_id):
         super().__init__(timeout=None)
         self.content = content
-        self.img = img
+        self.image = image
         self.author = author
-        self.number = number
+        self.conf_id = conf_id
 
-    # Solo usuarios con MODERATOR_ROLE_ID pueden tocar botones
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+    # Verificación de seguridad: Solo MODERADORES pueden tocar
+    async def interaction_check(self, interaction: discord.Interaction):
         if not interaction.user.get_role(MODERATOR_ROLE_ID):
-            await interaction.response.send_message("🔒 Solo Moderadores pueden gestionar esto.", ephemeral=True)
+            await interaction.response.send_message("🔒 **Acceso Denegado:** No eres moderador de confesiones.", ephemeral=True)
             return False
         return True
 
-    @discord.ui.button(label="Aprobar", style=discord.ButtonStyle.success, emoji="✅", custom_id="conf_approve")
+    @discord.ui.button(label="Aprobar", style=discord.ButtonStyle.success, emoji="✅", custom_id="adm_approve")
     async def approve(self, interaction: discord.Interaction, button):
-        chn = interaction.guild.get_channel(CONFESSION_CHANNEL_ID)
-        if not chn: return await interaction.response.send_message("❌ Canal público no encontrado.", ephemeral=True)
-
-        # Embed Público (Anónimo)
-        embed = discord.Embed(description=self.content, color=Theme.DARK, timestamp=datetime.now())
-        embed.set_author(name=f"Confesión #{self.number}", icon_url="https://cdn-icons-png.flaticon.com/512/4645/4645949.png")
-        if self.img: embed.set_image(url=self.img)
-        embed.set_footer(text="A.E.C MM • ¡Envía la tuya!")
+        public_channel = interaction.guild.get_channel(CONFESSION_CHANNEL_ID)
         
-        await chn.send(embed=embed)
-        
-        # Log Update
-        log = interaction.message.embeds[0]
-        log.color = Theme.SUCCESS
-        log.set_field_at(0, name="📊 Estado", value=f"🟢 **APROBADO**\n👮 Por: {interaction.user.mention}", inline=False)
-        await interaction.message.edit(embed=log, view=None)
-        await interaction.response.send_message("✅ Publicada.", ephemeral=True)
+        # --- EL EMBED PÚBLICO (BONITO) ---
+        embed_pub = discord.Embed(
+            description=self.content,
+            color=Colors.DARK, # Color oscuro minimalista
+            timestamp=datetime.now()
+        )
+        embed_pub.set_author(name=f"Confesión Anónima #{self.conf_id}", icon_url="https://cdn-icons-png.flaticon.com/512/4645/4645949.png")
+        if self.image: embed_pub.set_image(url=self.image)
+        embed_pub.set_footer(text="A.E.C MM • Secretos Anónimos")
 
-    @discord.ui.button(label="Denegar", style=discord.ButtonStyle.secondary, emoji="✖️", custom_id="conf_deny")
+        # 🔥 AQUÍ ESTÁ LA MAGIA: Adjuntamos el botón de confesión al mensaje público
+        await public_channel.send(embed=embed_pub, view=PublicConfessionView())
+
+        # Actualizar Log a Verde
+        embed_log = interaction.message.embeds[0]
+        embed_log.color = Colors.LOG_APPROVE
+        embed_log.set_field_at(0, name="📊 Estado", value=f"🟢 **APROBADO**\n👮 {interaction.user.mention}", inline=False)
+        # Quitamos datos sensibles del log visual si quieres, o los dejas. Aquí los dejo.
+        
+        await interaction.message.edit(embed=embed_log, view=None) # Quitamos botones
+        await interaction.response.send_message("✅ Publicada con éxito.", ephemeral=True)
+
+    @discord.ui.button(label="Denegar", style=discord.ButtonStyle.danger, emoji="✖️", custom_id="adm_deny")
     async def deny(self, interaction: discord.Interaction, button):
-        log = interaction.message.embeds[0]
-        log.color = Theme.ERROR
-        log.set_field_at(0, name="📊 Estado", value=f"🔴 **DENEGADO**\n👮 Por: {interaction.user.mention}", inline=False)
-        await interaction.message.edit(embed=log, view=None)
-        await interaction.response.send_message("🗑️ Denegada.", ephemeral=True)
-
-    @discord.ui.button(label="Motivo", style=discord.ButtonStyle.primary, emoji="💬", custom_id="conf_reason")
-    async def reason(self, interaction: discord.Interaction, button):
-        await interaction.response.send_modal(DenyReasonModal(interaction.message.embeds[0], self.author))
-
-    @discord.ui.button(label="BAN", style=discord.ButtonStyle.danger, emoji="🔨", custom_id="conf_ban")
-    async def ban(self, interaction: discord.Interaction, button):
-        ban_user(self.author.id)
-        log = interaction.message.embeds[0]
-        log.color = Theme.BAN
-        log.set_field_at(0, name="📊 Estado", value=f"⚫ **BANEADO**\n👮 Por: {interaction.user.mention}\n👤 {self.author.mention}", inline=False)
-        await interaction.message.edit(embed=log, view=None)
-        await interaction.response.send_message(f"⛔ {self.author.name} ha sido baneado.", ephemeral=True)
-
-class ConfessionModal(discord.ui.Modal, title="Enviar Confesión"):
-    content = discord.ui.TextInput(label="Confesión", style=discord.TextStyle.paragraph, placeholder="Escribe aquí...", min_length=5, max_length=3000)
-    attachment = discord.ui.TextInput(label="Imagen (URL)", required=False, placeholder="https://...")
-
-    async def on_submit(self, interaction: discord.Interaction):
-        if is_banned(interaction.user.id):
-            return await interaction.response.send_message("⛔ Estás baneado.", ephemeral=True)
+        embed_log = interaction.message.embeds[0]
+        embed_log.color = Colors.LOG_DENY
+        embed_log.set_field_at(0, name="📊 Estado", value=f"🔴 **DENEGADO**\n👮 {interaction.user.mention}", inline=False)
         
-        log_channel = interaction.guild.get_channel(LOG_CHANNEL_ID)
-        num = inc_count()
-        img = self.attachment.value if self.attachment.value else None
+        await interaction.message.edit(embed=embed_log, view=None)
+        await interaction.response.send_message("🗑️ Confesión eliminada.", ephemeral=True)
 
-        # Embed Log (Visible para Mods)
-        embed = discord.Embed(title=f"📝 Pendiente #{num}", description=f"``````", color=Theme.WARN, timestamp=datetime.now())
-        embed.set_author(name=f"{interaction.user}", icon_url=interaction.user.display_avatar.url)
-        embed.add_field(name="📊 Estado", value="⏳ **Esperando Revisión**", inline=False)
-        embed.add_field(name="👤 Autor", value=f"{interaction.user.mention} (`{interaction.user.id}`)", inline=True)
-        if img: embed.set_image(url=img)
-
-        await log_channel.send(embed=embed, view=AdminView(self.content.value, img, interaction.user, num))
-        await interaction.response.send_message(f"✅ Confesión **#{num}** enviada a revisión.", ephemeral=True)
-
-class StartView(discord.ui.View):
-    def __init__(self): super().__init__(timeout=None)
-    @discord.ui.button(label="Crear una confesión", style=discord.ButtonStyle.primary, emoji="📩", custom_id="start_btn_main")
-    async def start(self, interaction: discord.Interaction, button):
-        await interaction.response.send_modal(ConfessionModal())
+    @discord.ui.button(label="Banear Usuario", style=discord.ButtonStyle.secondary, emoji="🔨", custom_id="adm_ban")
+    async def ban(self, interaction: discord.Interaction, button):
+        ban_user_id(self.author.id)
+        
+        embed_log = interaction.message.embeds[0]
+        embed_log.color = Colors.LOG_BAN
+        embed_log.set_field_at(0, name="📊 Estado", value=f"⚫ **BANEADO**\n👤 {self.author.mention}", inline=False)
+        
+        await interaction.message.edit(embed=embed_log, view=None)
+        await interaction.response.send_message(f"⛔ El usuario {self.author.name} ha sido bloqueado.", ephemeral=True)
 
 # ==========================================
-# 🚀 COMANDOS Y EVENTOS
+# 🚀 COMANDOS DEL BOT
 # ==========================================
 
 @bot.event
 async def on_ready():
-    init_files()
-    bot.add_view(StartView()) # Persistencia del botón
-    print(f"🌌 A.E.C MM BOT ACTIVO | {bot.user}")
-    print(f"🔹 Middleman Role: {MM_ROLE_ID}")
-    print(f"🔹 Moderator Role: {MODERATOR_ROLE_ID}")
+    check_files()
+    print(f"🌌 Galaxy Bot v3.5 Listo | {bot.user}")
 
 # --- COMANDO MIDDLEMAN ($ADD) ---
 @bot.command(name="add")
 async def add_user(ctx, *, arg=None):
-    # 1. Verificar Rol Middleman
+    # Verificar si tiene el Rol de Middleman
     if not ctx.author.get_role(MM_ROLE_ID):
-        return await ctx.send(embed=discord.Embed(title="🔒 Acceso Denegado", description="Solo **Middlemans** pueden usar esto.", color=Theme.ERROR))
+        return await ctx.send(embed=discord.Embed(description="🔒 No tienes permisos de Middleman.", color=Colors.LOG_DENY))
+    
+    if not arg: return await ctx.send("⚠️ Debes mencionar a alguien o poner su ID.")
 
-    if not arg: return await ctx.send(embed=discord.Embed(description="❌ Uso: `$add @usuario`", color=Theme.ERROR))
+    # Buscar usuario (Lógica simple)
+    user = None
+    if arg.isdigit(): user = ctx.guild.get_member(int(arg))
+    elif "<@" in arg: user = ctx.guild.get_member(int(re.search(r'\d+', arg).group()))
+    
+    if not user: return await ctx.send("❌ Usuario no encontrado.")
 
-    # 2. Buscar Usuario
-    user = parse_user(arg, ctx.guild)
-    if not user: return await ctx.send(embed=discord.Embed(description="❌ Usuario no encontrado.", color=Theme.ERROR))
-
+    # Dar permisos
     try:
-        # 3. Dar Permisos
-        await ctx.channel.set_permissions(user, view_channel=True, send_messages=True, read_message_history=True, attach_files=True, embed_links=True)
+        await ctx.channel.set_permissions(user, view_channel=True, send_messages=True, read_message_history=True, attach_files=True)
         
-        # 4. Embed Éxito Aesthetic
-        embed = discord.Embed(description=f"👋 **{user.mention}** ha sido añadido al ticket.", color=Theme.MM_COLOR)
-        embed.set_footer(text=f"Añadido por {ctx.author.display_name} | A.E.C MM")
+        # Embed Bonito
+        embed = discord.Embed(description=f"👋 **{user.mention}** añadido al ticket.", color=Colors.MM_SUCCESS)
+        embed.set_footer(text=f"Añadido por {ctx.author.display_name}")
         await ctx.send(embed=embed)
-
-        # 5. Frase Groq
-        joke = await asyncio.to_thread(get_random_joke)
-        await ctx.send(embed=discord.Embed(description=f"🤖 *{joke}*", color=Theme.GALAXY))
-
+        
+        # IA Joke
+        try:
+            client = Groq(api_key=GROQ_API_KEY)
+            chat = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role":"user","content":"Dime una frase corta y graciosa random en español."}])
+            joke = chat.choices[0].message.content
+            await ctx.send(f"> 🤖 *{joke}*")
+        except: pass
+        
     except Exception as e:
-        await ctx.send(f"❌ Error: {e}")
+        await ctx.send(f"Error de permisos: {e}")
 
-# --- COMANDO SETUP CONFESIONES ---
+# --- COMANDO SETUP (Solo Admin) ---
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def setup(ctx):
     await ctx.message.delete()
     embed = discord.Embed(
-        title="🔮 Confesiones A.E.C MM",
-        description="Envía tu confesión de forma **100% anónima**.\n\n🔹 Nadie verá tu nombre en el canal público.\n🔹 Los moderadores revisarán el contenido antes de publicarlo.",
-        color=Theme.GALAXY
+        title="🌙 Confesiones Anónimas",
+        description="Envía tus secretos sin revelar tu identidad.\n\n🛡️ **100% Seguro:** Tu nombre está oculto al público.\n👁️ **Moderado:** Todo pasa por revisión.",
+        color=Colors.GALAXY
     )
-    embed.set_image(url="https://media.discordapp.net/attachments/1011326049646030968/1169336487616122940/confessions_banner.png") # Pon tu banner aquí
-    await ctx.send(embed=embed, view=StartView())
+    embed.set_image(url="https://media.discordapp.net/attachments/1011326049646030968/1169336487616122940/confessions_banner.png") # Puedes cambiar esto
+    
+    await ctx.send(embed=embed, view=PublicConfessionView())
 
 if __name__ == "__main__":
     bot.run(TOKEN)
