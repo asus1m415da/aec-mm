@@ -2,15 +2,42 @@ import discord
 from discord.ext import commands
 import os
 import re
+import json
+import asyncio
 from dotenv import load_dotenv
 from groq import Groq
-import asyncio
-import aiohttp
+from datetime import datetime
+
+# ==========================================
+# 🛠️ CONFIGURACIÓN Y CONSTANTES
+# ==========================================
 
 load_dotenv()
 
+# Credenciales
 TOKEN = os.getenv("DISCORD_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+
+# IDs del Servidor
+try:
+    GUILD_ID = int(os.getenv("GUILD_ID"))
+    CONFESSION_CHANNEL_ID = int(os.getenv("CONFESSION_CHANNEL_ID"))
+    LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID"))
+    MM_ROLE_ID = int(os.getenv("MM_ROLE_ID"))           # Rol para $add
+    MODERATOR_ROLE_ID = int(os.getenv("MODERATOR_ROLE_ID")) # Rol para Logs
+except (TypeError, ValueError):
+    print("❌ ERROR: Faltan IDs en el archivo .env. Revisa tu configuración.")
+    exit()
+
+# Paleta de Colores (Theme)
+class Theme:
+    DARK = 0x2B2D31       # Fondo oscuro Discord
+    SUCCESS = 0x43B581    # Verde
+    ERROR = 0xF04747      # Rojo
+    WARN = 0xFAA61A       # Naranja
+    MM_COLOR = 0x5865F2   # Azul Blurple (Middleman)
+    GALAXY = 0x6A0DAD     # Morado
+    BAN = 0x000000        # Negro
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -19,477 +46,215 @@ intents.members = True
 
 bot = commands.Bot(command_prefix="$", help_command=None, intents=intents)
 
-# ===== CONFIGURACIÓN DE VIGILANCIA =====
-MONITORED_CHANNELS = {}  # {channel_id: webhook_url}
-MARKDOWN_PATTERNS = {
-    r'\*\*(.*?)\*\*': r'\1',  # **bold** → bold
-    r'\*(.*?)\*': r'\1',      # *italic* → italic
-    r'__(.*?)__': r'\1',      # __underline__ → underline
-    r'_(.*?)_': r'\1',        # _italic_ → italic
-    r'~~(.*?)~~': r'\1',      # ~~strikethrough~~ → strikethrough
-    r'`(.*?)`': r'\1',        # `code` → code
-    r'```[\w]*\n(.*?)\n```': r'\1',  # ```code block``` → code block
-    r'^#{1,6} (.+)$': r'\1',  # # Heading → Heading (todas las variantes)
-}
+# ==========================================
+# 💾 SISTEMA DE DATOS (JSON)
+# ==========================================
 
-def strip_markdown(text):
-    """Elimina todo markdown de un texto y lo deja plano"""
-    cleaned = text
-    for pattern, replacement in MARKDOWN_PATTERNS.items():
-        cleaned = re.sub(pattern, replacement, cleaned, flags=re.DOTALL)
-    
-    # Eliminar caracteres especiales Discord
-    cleaned = re.sub(r'<@!?(\d+)>', r'@usuario', cleaned)
-    cleaned = re.sub(r'<#(\d+)>', r'#canal', cleaned)
-    cleaned = re.sub(r'<@&(\d+)>', r'@rol', cleaned)
-    
-    return cleaned.strip()
+def init_files():
+    if not os.path.exists("count.json"):
+        with open("count.json", "w") as f: json.dump({"count": 1}, f)
+    if not os.path.exists("blacklist.json"):
+        with open("blacklist.json", "w") as f: json.dump({"banned": []}, f)
+
+def get_count():
+    with open("count.json", "r") as f: return json.load(f).get("count", 1)
+
+def inc_count():
+    c = get_count()
+    with open("count.json", "w") as f: json.dump({"count": c + 1}, f)
+    return c
+
+def is_banned(uid):
+    with open("blacklist.json", "r") as f: return uid in json.load(f).get("banned", [])
+
+def ban_user(uid):
+    with open("blacklist.json", "r+") as f:
+        d = json.load(f)
+        if uid not in d["banned"]:
+            d["banned"].append(uid)
+            f.seek(0); json.dump(d, f); f.truncate()
+
+# ==========================================
+# 🧠 IA (GROQ)
+# ==========================================
 
 def get_random_joke():
-    """Genera una frase chistosa usando Groq con openai/gpt-oss-120b"""
     try:
-        client = Groq()
+        client = Groq(api_key=GROQ_API_KEY)
         completion = client.chat.completions.create(
-            model="openai/gpt-oss-120b",
-            messages=[
-                {
-                    "role": "system",
-                    "content": "tu dices frases chistosas ramdoms de cualquier cosa, que hagan reir y que no esten quemadas, solo di la frase directa y nada mas"
-                },
-                {
-                    "role": "user",
-                    "content": ""
-                }
-            ],
-            temperature=2,
-            max_completion_tokens=1536,
-            top_p=1,
-            reasoning_effort="high",
-            stream=True,
-            stop=None,
-            tools=[{"type": "browser_search"}]
+            model="openai/gpt-oss-120b", # O usa 'llama3-70b-8192' si ese no va
+            messages=[{"role": "system", "content": "Eres un bot gracioso. Di una frase corta y chistosa en español."}, 
+                      {"role": "user", "content": "di algo"}],
+            temperature=1.2, max_tokens=100
         )
+        return completion.choices[0].message.content.strip()
+    except: return "Mi cerebro IA se reinició... 🤖"
+
+def parse_user(arg, guild):
+    arg = arg.strip()
+    if re.match(r'^\d{17,20}$', arg): return guild.get_member(int(arg))
+    if arg.startswith("<@"): 
+        mid = re.search(r'\d+', arg)
+        if mid: return guild.get_member(int(mid.group()))
+    return discord.utils.find(lambda m: m.name == arg, guild.members)
+
+# ==========================================
+# 🛡️ SISTEMA DE CONFESIONES (UI)
+# ==========================================
+
+class DenyReasonModal(discord.ui.Modal, title="Motivo del Rechazo"):
+    reason = discord.ui.TextInput(label="Razón", style=discord.TextStyle.paragraph, required=True)
+    
+    def __init__(self, embed_log, author):
+        super().__init__()
+        self.embed_log = embed_log
+        self.author = author
+
+    async def on_submit(self, interaction: discord.Interaction):
+        self.embed_log.color = Theme.ERROR
+        self.embed_log.set_field_at(0, name="📊 Estado", value=f"🔴 **DENEGADO**\n👮 Por: {interaction.user.mention}\n📝 Razón: {self.reason.value}", inline=False)
+        await interaction.message.edit(embed=self.embed_log, view=None)
+        try: await self.author.send(f"❌ Tu confesión fue denegada: {self.reason.value}")
+        except: pass
+        await interaction.response.send_message("✅ Denegado con motivo.", ephemeral=True)
+
+class AdminView(discord.ui.View):
+    def __init__(self, content, img, author, number):
+        super().__init__(timeout=None)
+        self.content = content
+        self.img = img
+        self.author = author
+        self.number = number
+
+    # Solo usuarios con MODERATOR_ROLE_ID pueden tocar botones
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if not interaction.user.get_role(MODERATOR_ROLE_ID):
+            await interaction.response.send_message("🔒 Solo Moderadores pueden gestionar esto.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label="Aprobar", style=discord.ButtonStyle.success, emoji="✅", custom_id="conf_approve")
+    async def approve(self, interaction: discord.Interaction, button):
+        chn = interaction.guild.get_channel(CONFESSION_CHANNEL_ID)
+        if not chn: return await interaction.response.send_message("❌ Canal público no encontrado.", ephemeral=True)
+
+        # Embed Público (Anónimo)
+        embed = discord.Embed(description=self.content, color=Theme.DARK, timestamp=datetime.now())
+        embed.set_author(name=f"Confesión #{self.number}", icon_url="https://cdn-icons-png.flaticon.com/512/4645/4645949.png")
+        if self.img: embed.set_image(url=self.img)
+        embed.set_footer(text="A.E.C MM • ¡Envía la tuya!")
         
-        joke = ""
-        for chunk in completion:
-            if chunk.choices[0].delta.content:
-                joke += chunk.choices[0].delta.content
+        await chn.send(embed=embed)
         
-        return joke.strip()
-    except Exception as e:
-        print(f"⚠️ Error Groq: {e}")
-        return "¡Ups! Mi cerebro de IA necesita un café ☕"
+        # Log Update
+        log = interaction.message.embeds[0]
+        log.color = Theme.SUCCESS
+        log.set_field_at(0, name="📊 Estado", value=f"🟢 **APROBADO**\n👮 Por: {interaction.user.mention}", inline=False)
+        await interaction.message.edit(embed=log, view=None)
+        await interaction.response.send_message("✅ Publicada.", ephemeral=True)
 
-def parse_user_input(arg):
-    if re.match(r'^\d{15,20}$', arg):
-        return int(arg), "id"
-    if arg.startswith("<@"):
-        match = re.search(r'<@!?(\d+)>', arg)
-        if match:
-            return int(match.group(1)), "mention"
-    if re.match(r'^[a-zA-Z0-9_]{2,32}$', arg):
-        return arg, "username"
-    return None, None
+    @discord.ui.button(label="Denegar", style=discord.ButtonStyle.secondary, emoji="✖️", custom_id="conf_deny")
+    async def deny(self, interaction: discord.Interaction, button):
+        log = interaction.message.embeds[0]
+        log.color = Theme.ERROR
+        log.set_field_at(0, name="📊 Estado", value=f"🔴 **DENEGADO**\n👮 Por: {interaction.user.mention}", inline=False)
+        await interaction.message.edit(embed=log, view=None)
+        await interaction.response.send_message("🗑️ Denegada.", ephemeral=True)
 
-async def create_webhook_for_channel(channel):
-    """Crea un webhook en el canal y retorna su URL"""
-    try:
-        webhook = await channel.create_webhook(name="Galaxy Monitor")
-        return str(webhook.url)
-    except discord.Forbidden:
-        print(f"❌ No tengo permisos para crear webhook en {channel.name}")
-        return None
-    except Exception as e:
-        print(f"❌ Error creando webhook: {e}")
-        return None
+    @discord.ui.button(label="Motivo", style=discord.ButtonStyle.primary, emoji="💬", custom_id="conf_reason")
+    async def reason(self, interaction: discord.Interaction, button):
+        await interaction.response.send_modal(DenyReasonModal(interaction.message.embeds[0], self.author))
 
-async def send_webhook_message(webhook_url, author_name, content, avatar_url):
-    """Envía un mensaje a través de webhook con avatar del usuario"""
-    try:
-        async with aiohttp.ClientSession() as session:
-            payload = {
-                "content": content,
-                "username": author_name,
-                "avatar_url": avatar_url
-            }
-            async with session.post(webhook_url, json=payload) as response:
-                return response.status == 204
-    except Exception as e:
-        print(f"❌ Error enviando webhook: {e}")
-        return False
+    @discord.ui.button(label="BAN", style=discord.ButtonStyle.danger, emoji="🔨", custom_id="conf_ban")
+    async def ban(self, interaction: discord.Interaction, button):
+        ban_user(self.author.id)
+        log = interaction.message.embeds[0]
+        log.color = Theme.BAN
+        log.set_field_at(0, name="📊 Estado", value=f"⚫ **BANEADO**\n👮 Por: {interaction.user.mention}\n👤 {self.author.mention}", inline=False)
+        await interaction.message.edit(embed=log, view=None)
+        await interaction.response.send_message(f"⛔ {self.author.name} ha sido baneado.", ephemeral=True)
+
+class ConfessionModal(discord.ui.Modal, title="Enviar Confesión"):
+    content = discord.ui.TextInput(label="Confesión", style=discord.TextStyle.paragraph, placeholder="Escribe aquí...", min_length=5, max_length=3000)
+    attachment = discord.ui.TextInput(label="Imagen (URL)", required=False, placeholder="https://...")
+
+    async def on_submit(self, interaction: discord.Interaction):
+        if is_banned(interaction.user.id):
+            return await interaction.response.send_message("⛔ Estás baneado.", ephemeral=True)
+        
+        log_channel = interaction.guild.get_channel(LOG_CHANNEL_ID)
+        num = inc_count()
+        img = self.attachment.value if self.attachment.value else None
+
+        # Embed Log (Visible para Mods)
+        embed = discord.Embed(title=f"📝 Pendiente #{num}", description=f"``````", color=Theme.WARN, timestamp=datetime.now())
+        embed.set_author(name=f"{interaction.user}", icon_url=interaction.user.display_avatar.url)
+        embed.add_field(name="📊 Estado", value="⏳ **Esperando Revisión**", inline=False)
+        embed.add_field(name="👤 Autor", value=f"{interaction.user.mention} (`{interaction.user.id}`)", inline=True)
+        if img: embed.set_image(url=img)
+
+        await log_channel.send(embed=embed, view=AdminView(self.content.value, img, interaction.user, num))
+        await interaction.response.send_message(f"✅ Confesión **#{num}** enviada a revisión.", ephemeral=True)
+
+class StartView(discord.ui.View):
+    def __init__(self): super().__init__(timeout=None)
+    @discord.ui.button(label="Crear una confesión", style=discord.ButtonStyle.primary, emoji="📩", custom_id="start_btn_main")
+    async def start(self, interaction: discord.Interaction, button):
+        await interaction.response.send_modal(ConfessionModal())
+
+# ==========================================
+# 🚀 COMANDOS Y EVENTOS
+# ==========================================
 
 @bot.event
 async def on_ready():
-    print(f"🌌 Galaxy Bot listo como {bot.user}")
+    init_files()
+    bot.add_view(StartView()) # Persistencia del botón
+    print(f"🌌 A.E.C MM BOT ACTIVO | {bot.user}")
+    print(f"🔹 Middleman Role: {MM_ROLE_ID}")
+    print(f"🔹 Moderator Role: {MODERATOR_ROLE_ID}")
 
-@bot.event
-async def on_message(message):
-    """Detecta markdown en canales monitoreados y lo convierte"""
-    # Verificar si el canal está monitoreado
-    if message.channel.id not in MONITORED_CHANNELS:
-        await bot.process_commands(message)
-        return
-    
-    webhook_url = MONITORED_CHANNELS[message.channel.id]
-    
-    # Detectar si el mensaje tiene markdown
-    has_markdown = any(pattern in message.content for pattern in [
-        '**', '__', '~~', '`', '```', '#'
-    ])
-    
-    if has_markdown:
-        # Limpiar markdown
-        clean_content = strip_markdown(message.content)
-        
-        # Enviar a través de webhook
-        success = await send_webhook_message(
-            webhook_url,
-            message.author.name,
-            clean_content,
-            str(message.author.display_avatar.url)
-        )
-        
-        if success:
-            # Borrar el mensaje original
-            try:
-                await message.delete()
-                print(f"✓ Mensaje de {message.author.name} procesado (markdown removido)")
-            except discord.Forbidden:
-                print(f"⚠️ No pude borrar el mensaje de {message.author.name}")
-    
-    await bot.process_commands(message)
-
-@bot.command(name="monitorear")
-@commands.has_permissions(administrator=True)
-async def monitor_command(ctx, category_id: int = None):
-    """Monitorea todos los canales de una categoría"""
-    if category_id is None:
-        embed = discord.Embed(
-            title="❌ Uso Incorrecto",
-            description="Debes especificar el ID de la categoría",
-            color=discord.Color.red()
-        )
-        embed.add_field(
-            name="Ejemplo:",
-            value="`$monitorear 1389689571146469510`",
-            inline=False
-        )
-        embed.set_footer(text="Galaxy Bot | Powered by Groq AI")
-        await ctx.send(embed=embed)
-        return
-    
-    try:
-        category = bot.get_channel(category_id)
-        if not isinstance(category, discord.CategoryChannel):
-            embed = discord.Embed(
-                title="❌ Error",
-                description="Ese ID no es una categoría válida",
-                color=discord.Color.red()
-            )
-            embed.set_footer(text="Galaxy Bot | Powered by Groq AI")
-            await ctx.send(embed=embed)
-            return
-        
-        channels_monitored = 0
-        channels_failed = 0
-        
-        embed_progress = discord.Embed(
-            title="⏳ Configurando monitoreo...",
-            description=f"Procesando canales de: **{category.name}**",
-            color=discord.Color.yellow()
-        )
-        progress_msg = await ctx.send(embed=embed_progress)
-        
-        for channel in category.text_channels:
-            if isinstance(channel, discord.TextChannel):
-                webhook_url = await create_webhook_for_channel(channel)
-                if webhook_url:
-                    MONITORED_CHANNELS[channel.id] = webhook_url
-                    channels_monitored += 1
-                else:
-                    channels_failed += 1
-        
-        embed_success = discord.Embed(
-            title="✓ Monitoreo Configurado",
-            description=f"Vigilando la categoría: **{category.name}**",
-            color=discord.Color.green()
-        )
-        embed_success.add_field(
-            name="📊 Estadísticas",
-            value=f"✓ Canales monitoreados: **{channels_monitored}**\n❌ Canales fallidos: **{channels_failed}**",
-            inline=False
-        )
-        embed_success.add_field(
-            name="⚙️ Función",
-            value="Detectaré automáticamente markdown en estos canales y lo convertiré a texto plano mediante webhooks",
-            inline=False
-        )
-        embed_success.set_footer(text="Galaxy Bot | Powered by Groq AI")
-        
-        await progress_msg.edit(embed=embed_success)
-        
-    except Exception as e:
-        embed = discord.Embed(
-            title="❌ Error",
-            description=f"```{str(e)}```",
-            color=discord.Color.red()
-        )
-        embed.set_footer(text="Galaxy Bot | Powered by Groq AI")
-        await ctx.send(embed=embed)
-
-@bot.command(name="dejar_monitorear")
-@commands.has_permissions(administrator=True)
-async def unmonitor_command(ctx, category_id: int = None):
-    """Deja de monitorear una categoría"""
-    if category_id is None:
-        embed = discord.Embed(
-            title="❌ Uso Incorrecto",
-            description="Debes especificar el ID de la categoría",
-            color=discord.Color.red()
-        )
-        embed.set_footer(text="Galaxy Bot | Powered by Groq AI")
-        await ctx.send(embed=embed)
-        return
-    
-    try:
-        category = bot.get_channel(category_id)
-        if not isinstance(category, discord.CategoryChannel):
-            embed = discord.Embed(
-                title="❌ Error",
-                description="Ese ID no es una categoría válida",
-                color=discord.Color.red()
-            )
-            embed.set_footer(text="Galaxy Bot | Powered by Groq AI")
-            await ctx.send(embed=embed)
-            return
-        
-        channels_removed = 0
-        webhooks_deleted = 0
-        
-        try:
-            all_webhooks = await ctx.guild.webhooks()
-            for webhook in all_webhooks:
-                if webhook.name == "Galaxy Monitor":
-                    try:
-                        await webhook.delete()
-                        webhooks_deleted += 1
-                        print(f"✓ Webhook '{webhook.name}' en {webhook.channel} eliminado")
-                    except Exception as e:
-                        print(f"⚠️ Error borrando webhook: {e}")
-        except Exception as e:
-            print(f"⚠️ Error obteniendo webhooks: {e}")
-        
-        for channel in category.text_channels:
-            if channel.id in MONITORED_CHANNELS:
-                del MONITORED_CHANNELS[channel.id]
-                channels_removed += 1
-        
-        embed = discord.Embed(
-            title="✓ Monitoreo Detenido",
-            description=f"Dejé de vigilar **{channels_removed}** canales de: **{category.name}**",
-            color=discord.Color.green()
-        )
-        embed.add_field(
-            name="🗑️ Webhooks Eliminados",
-            value=f"**{webhooks_deleted}** webhooks 'Galaxy Monitor' fueron borrados del servidor",
-            inline=False
-        )
-        embed.set_footer(text="Galaxy Bot | Powered by Groq AI")
-        await ctx.send(embed=embed)
-        
-    except Exception as e:
-        embed = discord.Embed(
-            title="❌ Error",
-            description=f"```{str(e)}```",
-            color=discord.Color.red()
-        )
-        embed.set_footer(text="Galaxy Bot | Powered by Groq AI")
-        await ctx.send(embed=embed)
-
+# --- COMANDO MIDDLEMAN ($ADD) ---
 @bot.command(name="add")
-@commands.has_any_role("MIDDLEMAN", 1427705211186839672)
 async def add_user(ctx, *, arg=None):
-    if not arg:
-        embed = discord.Embed(
-            title="❌ Uso Incorrecto",
-            description="Debes especificar un usuario",
-            color=discord.Color.red()
-        )
-        embed.add_field(
-            name="Formatos válidos:",
-            value="`$add @usuario`\n`$add usuario`\n`$add 123456789`",
-            inline=False
-        )
-        embed.set_footer(text="Galaxy Bot | Powered by Groq AI")
-        await ctx.send(embed=embed)
-        return
-    arg = arg.strip()
-    user_data, user_type = parse_user_input(arg)
-    if not user_data:
-        embed = discord.Embed(
-            title="❌ Formato Inválido",
-            description="No pude reconocer el usuario",
-            color=discord.Color.red()
-        )
-        embed.add_field(
-            name="Intenta con:",
-            value="`@usuario` | `usuario` | `ID`",
-            inline=False
-        )
-        embed.set_footer(text="Galaxy Bot | Powered by Groq AI")
-        await ctx.send(embed=embed)
-        return
+    # 1. Verificar Rol Middleman
+    if not ctx.author.get_role(MM_ROLE_ID):
+        return await ctx.send(embed=discord.Embed(title="🔒 Acceso Denegado", description="Solo **Middlemans** pueden usar esto.", color=Theme.ERROR))
+
+    if not arg: return await ctx.send(embed=discord.Embed(description="❌ Uso: `$add @usuario`", color=Theme.ERROR))
+
+    # 2. Buscar Usuario
+    user = parse_user(arg, ctx.guild)
+    if not user: return await ctx.send(embed=discord.Embed(description="❌ Usuario no encontrado.", color=Theme.ERROR))
+
     try:
-        if user_type == "id":
-            user = await bot.fetch_user(user_data)
-        elif user_type == "mention":
-            user = await bot.fetch_user(user_data)
-        elif user_type == "username":
-            user = discord.utils.find(
-                lambda m: m.name == user_data,
-                ctx.guild.members
-            )
-            if not user:
-                embed = discord.Embed(
-                    title="❌ Usuario No Encontrado",
-                    description=f"No existe el usuario `{user_data}` en este servidor",
-                    color=discord.Color.red()
-                )
-                embed.set_footer(text="Galaxy Bot | Powered by Groq AI")
-                await ctx.send(embed=embed)
-                return
+        # 3. Dar Permisos
+        await ctx.channel.set_permissions(user, view_channel=True, send_messages=True, read_message_history=True, attach_files=True, embed_links=True)
         
-        # Permisos completos
-        await ctx.channel.set_permissions(
-            user,
-            view_channel=True,
-            send_messages=True,
-            read_message_history=True,
-            attach_files=True,
-            embed_links=True,
-            add_reactions=True,
-            external_emojis=True,
-            mention_everyone=False,
-            manage_messages=False
-        )
-        
-        embed_confirm = discord.Embed(
-            title="✓ Usuario Añadido",
-            description=f"{user.mention} ahora tiene acceso a {ctx.channel.mention}",
-            color=discord.Color.green()
-        )
-        embed_confirm.add_field(
-            name="Permisos Otorgados:",
-            value="✓ Ver canal\n✓ Enviar mensajes\n✓ Ver historial\n✓ Enviar archivos\n✓ Enviar links\n✓ Reacciones",
-            inline=False
-        )
-        embed_confirm.set_thumbnail(url=user.display_avatar.url)
-        embed_confirm.set_footer(text="Galaxy Bot | Powered by Groq AI")
-        await ctx.send(embed=embed_confirm)
-        
-        typing = await ctx.send(
-            embed=discord.Embed(
-                description="⏳ Generando frase chistosa...",
-                color=discord.Color.yellow()
-            )
-        )
+        # 4. Embed Éxito Aesthetic
+        embed = discord.Embed(description=f"👋 **{user.mention}** ha sido añadido al ticket.", color=Theme.MM_COLOR)
+        embed.set_footer(text=f"Añadido por {ctx.author.display_name} | A.E.C MM")
+        await ctx.send(embed=embed)
+
+        # 5. Frase Groq
         joke = await asyncio.to_thread(get_random_joke)
-        await typing.delete()
-        
-        embed_joke = discord.Embed(
-            title="😂 Frase del Momento",
-            description=f">>> {joke}",
-            color=discord.Color.random()
-        )
-        embed_joke.set_footer(text="Galaxy Bot | openai/gpt-oss-120b | Browser Search ✓")
-        await ctx.send(embed=embed_joke)
-    except discord.NotFound:
-        embed = discord.Embed(
-            title="❌ Usuario No Encontrado",
-            description="El usuario no existe en Discord",
-            color=discord.Color.red()
-        )
-        embed.set_footer(text="Galaxy Bot | Powered by Groq AI")
-        await ctx.send(embed=embed)
-    except discord.Forbidden:
-        embed = discord.Embed(
-            title="❌ Permisos Insuficientes",
-            description="No tengo permisos para modificar este canal",
-            color=discord.Color.red()
-        )
-        embed.set_footer(text="Galaxy Bot | Powered by Groq AI")
-        await ctx.send(embed=embed)
+        await ctx.send(embed=discord.Embed(description=f"🤖 *{joke}*", color=Theme.GALAXY))
+
     except Exception as e:
-        embed = discord.Embed(
-            title="❌ Error",
-            description=f"``````",
-            color=discord.Color.red()
-        )
-        embed.set_footer(text="Galaxy Bot | Powered by Groq AI")
-        await ctx.send(embed=embed)
+        await ctx.send(f"❌ Error: {e}")
 
-@add_user.error
-async def add_user_error(ctx, error):
-    if isinstance(error, commands.MissingAnyRole):
-        embed = discord.Embed(
-            title="🔒 Acceso Denegado",
-            description="No tienes permisos para usar este comando",
-            color=discord.Color.red()
-        )
-        embed.add_field(
-            name="Rol Requerido:",
-            value="**MIDDLEMAN**",
-            inline=False
-        )
-        embed.set_footer(text="Galaxy Bot | Powered by Groq AI")
-        await ctx.send(embed=embed)
-
-@bot.command(name="comandos")
-async def comandos_command(ctx):
-    embed = discord.Embed(
-        title="📚 Comandos Galaxy Bot",
-        description="Bot para gestionar permisos de canales con frases chistosas.\n\n" +
-                    "**$add** — Añade usuario al canal (Solo MIDDLEMAN).\n" +
-                    "**$monitorear** — Vigila canales de una categoría.\n" +
-                    "**$dejar_monitorear** — Deja de vigilar una categoría.\n" +
-                    "**$status** — Muestra canales monitoreados.\n" +
-                    "**$comandos** — Muestra este mensaje.\n",
-        color=discord.Color.blue()
-    )
-    embed.set_footer(text="Galaxy Bot | Powered by openai/gpt-oss-120b")
-    embed.set_thumbnail(url=bot.user.display_avatar.url)
-    await ctx.send(embed=embed)
-
-@bot.command(name="status")
+# --- COMANDO SETUP CONFESIONES ---
+@bot.command()
 @commands.has_permissions(administrator=True)
-async def status_command(ctx):
-    """Muestra el estado de monitoreo actual"""
-    if not MONITORED_CHANNELS:
-        embed = discord.Embed(
-            title="📊 Estado de Monitoreo",
-            description="No hay canales siendo monitoreados actualmente",
-            color=discord.Color.yellow()
-        )
-    else:
-        channels_info = ""
-        for channel_id in MONITORED_CHANNELS:
-            channel = bot.get_channel(channel_id)
-            if channel:
-                channels_info += f"• {channel.mention}\n"
-        
-        embed = discord.Embed(
-            title="📊 Estado de Monitoreo",
-            description=f"Vigilando **{len(MONITORED_CHANNELS)}** canales:",
-            color=discord.Color.green()
-        )
-        embed.add_field(
-            name="Canales Activos",
-            value=channels_info or "Sin canales",
-            inline=False
-        )
-    
-    embed.set_footer(text="Galaxy Bot | Powered by Groq AI")
-    await ctx.send(embed=embed)
+async def setup(ctx):
+    await ctx.message.delete()
+    embed = discord.Embed(
+        title="🔮 Confesiones A.E.C MM",
+        description="Envía tu confesión de forma **100% anónima**.\n\n🔹 Nadie verá tu nombre en el canal público.\n🔹 Los moderadores revisarán el contenido antes de publicarlo.",
+        color=Theme.GALAXY
+    )
+    embed.set_image(url="https://media.discordapp.net/attachments/1011326049646030968/1169336487616122940/confessions_banner.png") # Pon tu banner aquí
+    await ctx.send(embed=embed, view=StartView())
 
 if __name__ == "__main__":
     bot.run(TOKEN)
