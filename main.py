@@ -14,7 +14,7 @@ app = Flask('')
 
 @app.route('/')
 def home():
-    return "Bot de Eduardo está Online"
+    return "quien lea esto gana 20 robux y promote xd"
 
 def run():
     # Usamos el puerto 8080 que es el estándar para servicios Web
