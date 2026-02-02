@@ -7,7 +7,23 @@ from dotenv import load_dotenv
 from groq import Groq
 from datetime import datetime
 import re
+from flask import Flask
+from threading import Thread
 
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "Bot de Eduardo está Online"
+
+def run():
+    # Usamos el puerto 8080 que es el estándar para servicios Web
+    app.run(host='0.0.0.0', port=8080)
+
+def keep_alive():
+    t = Thread(target=run)
+    t.start()
+    
 # ==============================================================================
 # ⚙️ CONFIGURACIÓN Y CONSTANTES
 # ==============================================================================
@@ -333,7 +349,11 @@ async def setup(ctx):
 # ==============================================================================
 
 if __name__ == "__main__":
+    print("🛰️ Iniciando servidor de salud...")
+    keep_alive()  # <-- Esto abre la "ventanilla" para que Koyeb no te mate
+    
     try:
         bot.run(Config.TOKEN)
     except Exception as e:
-        print(f"❌ El bot se detuvo por un error: {e}")
+        print(f"❌ Error al iniciar el bot: {e}")
+        
