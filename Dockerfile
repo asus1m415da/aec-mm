@@ -9,16 +9,17 @@ ENV PYTHONUNBUFFERED=1
 WORKDIR /app
 
 # Instalamos las dependencias necesarias directamente
-# Esto evita que necesites un archivo requirements.txt por separado
+# ⚠️ AQUÍ FALTABAN LAS LIBRERÍAS NUEVAS
 RUN pip install --no-cache-dir \
     discord.py \
     python-dotenv \
     groq \
-    flask
+    flask \
+    requests \
+    fake-useragent
 
 # Copiamos el código de tu bot al contenedor
 COPY . .
 
 # Comando para arrancar el bot
-# RECUERDA: Cambia "main.py" por el nombre real de tu archivo de confesiones
 CMD ["python", "main.py"]
