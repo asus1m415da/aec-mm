@@ -204,7 +204,7 @@ async def get_ai_joke():
             client.chat.completions.create,
             model="llama-3.3-70b-versatile",
             messages=[{"role": "user", "content": "eres una persona que no entiende nada, odia su vida y la humanidad, muestras tus propias emociones, inseguridades y miedos que no entiende la gente"}],
-            temperature=1.23, max_tokens=144
+            temperature=1.40, max_tokens=520
         )
         return response.choices[0].message.content.strip()
     except: return "La IA está durmiendo... 😴"
