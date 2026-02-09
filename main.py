@@ -203,8 +203,8 @@ async def get_ai_joke():
         response = await asyncio.to_thread(
             client.chat.completions.create,
             model="llama-3.3-70b-versatile",
-            messages=[{"role": "user", "content": "Solo se feliz y alegre y cuenta chistes o anécdotas chistosas en español pero directo asi lo dices directo al chiste o anécdota.y solo dices uno chiste o anécdota sin repetir y corto."}],
-            temperature=1.20, max_tokens=509
+            messages=[{"role": "user", "content": "Solo se feliz y alegre y cuenta chistes o anécdotas chistosas en español pero directo asi lo dices directo al chiste o anécdota.y solo dices uno chiste o anécdota sin repetir y corto y no se repita lo mismo, todo unico."}],
+            temperature=1.30, max_tokens=509
         )
         return response.choices[0].message.content.strip()
     except: return "La IA está durmiendo... 😴"
