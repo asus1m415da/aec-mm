@@ -1,105 +1,191 @@
+"""
+╔═══════════════════════════════════════════════════════════════╗
+║          🚀 GALAXY BOT ENTERPRISE & MM RANKING v3.0           ║
+║       Sistema Unificado de Moderación, Confesiones y Proofs   ║
+╚═══════════════════════════════════════════════════════════════╝
+"""
+
 import discord
 from discord.ext import commands
 import os
 import json
 import asyncio
-from dotenv import load_dotenv
-from groq import Groq
-from datetime import datetime
+import logging
+import traceback
 import re
+from datetime import datetime
+from typing import Dict, Tuple, Optional, List
+from dotenv import load_dotenv
+from pathlib import Path
 from flask import Flask
 from threading import Thread
+from groq import Groq
 
+# ==============================================================================
+# 🌐 SERVIDOR WEB (KEEP ALIVE PARA KOYEB)
+# ==============================================================================
 app = Flask('')
 
 @app.route('/')
 def home():
-    return "quien lea esto gana 20 robux y promote xd"
+    return "🚀 Súper Bot Activo: Confesiones y Ranking operando al 100%"
 
 def run():
-    # Usamos el puerto 8080 que es el estándar para servicios Web
     app.run(host='0.0.0.0', port=8080)
 
 def keep_alive():
     t = Thread(target=run)
     t.start()
-    
-# ==============================================================================
-# ⚙️ CONFIGURACIÓN Y CONSTANTES
-# ==============================================================================
 
+# ==============================================================================
+# ⚙️ CONFIGURACIÓN Y LOGGING
+# ==============================================================================
 load_dotenv()
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s | %(levelname)-8s | %(message)s',
+    handlers=[
+        logging.FileHandler('super_bot.log', encoding='utf-8'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
 
 class Config:
     TOKEN = os.getenv("DISCORD_TOKEN")
     GROQ_KEY = os.getenv("GROQ_API_KEY")
     
-    # Validación de enteros segura
     try:
         GUILD_ID = int(os.getenv("GUILD_ID", 0))
         CONFESSION_CH_ID = int(os.getenv("CONFESSION_CHANNEL_ID", 0))
         LOG_CH_ID = int(os.getenv("LOG_CHANNEL_ID", 0))
         MM_ROLE_ID = int(os.getenv("MM_ROLE_ID", 0))
         MOD_ROLE_ID = int(os.getenv("MODERATOR_ROLE_ID", 0))
-    except ValueError:
-        print("❌ ERROR CRÍTICO: Los IDs en el archivo .env deben ser números.")
-        exit()
+        ADMIN_ID = int(os.getenv("ADMIN_ID", 0))
+        PROOF_CH_ID = int(os.getenv("PROOF_CHANNEL_ID", 0))
+    except (ValueError, TypeError):
+        logger.critical("❌ ERROR CRÍTICO: Los IDs en el archivo .env deben ser números.")
+        exit(1)
 
 class Colors:
-    GALAXY = 0x6A0DAD      # Morado Principal
-    SUCCESS = 0x43B581     # Verde Éxito
-    ERROR = 0xF04747       # Rojo Error
-    WARNING = 0xFAA61A     # Naranja Alerta
-    DARK = 0x2B2D31        # Fondo Discord (Embeds Anónimos)
-    BAN = 0x000000         # Negro Ban
-    MM = 0x5865F2          # Azul Middleman
+    GALAXY = 0x6A0DAD
+    SUCCESS = 0x43B581
+    ERROR = 0xF04747
+    WARNING = 0xFAA61A
+    DARK = 0x2B2D31
+    BAN = 0x000000
+    MM = 0x5865F2
 
-intents = discord.Intents.default()
-intents.message_content = True
-intents.members = True
-intents.guilds = True
+# Rutas de datos consolidadas
+DATA_DIR = Path('data')
+DATA_DIR.mkdir(exist_ok=True)
+RANKING_FILE = DATA_DIR / 'ranking_data.json'
+CONFESSION_FILE = DATA_DIR / 'confession_data.json'
+BACKUP_DIR = DATA_DIR / 'backups'
+BACKUP_DIR.mkdir(exist_ok=True)
 
 # ==============================================================================
-# 💾 GESTOR DE DATOS (Persistencia JSON)
+# 💾 GESTOR DE DATOS UNIFICADO (Thread-Safe)
 # ==============================================================================
-
 class DataManager:
-    @staticmethod
-    def _check_files():
-        if not os.path.exists("count.json"):
-            with open("count.json", "w") as f: json.dump({"count": 1}, f)
-        if not os.path.exists("blacklist.json"):
-            with open("blacklist.json", "w") as f: json.dump({"banned": []}, f)
+    def __init__(self):
+        self.ranking_data: Dict[int, int] = {}
+        self.confession_count: int = 1
+        self.banned_users: List[int] = []
+        self.lock = asyncio.Lock()
+        self._load_all()
 
-    @staticmethod
-    def get_next_id():
-        DataManager._check_files()
-        with open("count.json", "r") as f:
-            data = json.load(f)
-        new_count = data.get("count", 1)
-        with open("count.json", "w") as f:
-            json.dump({"count": new_count + 1}, f)
-        return new_count
+    def _load_all(self):
+        # Cargar Ranking
+        if RANKING_FILE.exists():
+            try:
+                with open(RANKING_FILE, 'r', encoding='utf-8') as f:
+                    raw = json.load(f)
+                self.ranking_data = {int(uid): int(count) for uid, count in raw.items()}
+            except Exception as e:
+                logger.error(f"Error cargando ranking: {e}")
+        
+        # Cargar Confesiones y Bans
+        if CONFESSION_FILE.exists():
+            try:
+                with open(CONFESSION_FILE, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    self.confession_count = data.get("count", 1)
+                    self.banned_users = data.get("banned", [])
+            except Exception as e:
+                logger.error(f"Error cargando datos de confesiones: {e}")
+        else:
+            self._save_confessions()
 
-    @staticmethod
-    def is_banned(user_id):
-        DataManager._check_files()
-        with open("blacklist.json", "r") as f:
-            return user_id in json.load(f).get("banned", [])
+    def _save_ranking(self):
+        with open(RANKING_FILE, 'w', encoding='utf-8') as f:
+            json.dump(self.ranking_data, f, indent=2, ensure_ascii=False)
 
-    @staticmethod
-    def ban_user(user_id):
-        DataManager._check_files()
-        with open("blacklist.json", "r+") as f:
-            data = json.load(f)
-            if user_id not in data["banned"]:
-                data["banned"].append(user_id)
-                f.seek(0); json.dump(data, f); f.truncate()
+    def _save_confessions(self):
+        with open(CONFESSION_FILE, 'w', encoding='utf-8') as f:
+            json.dump({"count": self.confession_count, "banned": self.banned_users}, f, indent=2)
+
+    def _backup_ranking(self):
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        with open(BACKUP_DIR / f"ranking_{timestamp}.json", 'w', encoding='utf-8') as f:
+            json.dump(self.ranking_data, f, indent=2, ensure_ascii=False)
+
+    # --- Métodos de Ranking ---
+    async def increment_proof(self, user_id: int):
+        async with self.lock:
+            self.ranking_data[user_id] = self.ranking_data.get(user_id, 0) + 1
+            self._backup_ranking()
+            self._save_ranking()
+
+    async def remove_user(self, user_id: int) -> bool:
+        async with self.lock:
+            if user_id in self.ranking_data:
+                del self.ranking_data[user_id]
+                self._save_ranking()
+                return True
+            return False
+
+    async def get_ranking(self) -> list:
+        return sorted(self.ranking_data.items(), key=lambda x: x[1], reverse=True)
+
+    async def export_ranking(self) -> str:
+        return json.dumps(self.ranking_data, indent=2, ensure_ascii=False)
+
+    async def import_ranking(self, json_str: str) -> Tuple[bool, str]:
+        try:
+            new_data = json.loads(json_str)
+            validated = {int(uid): int(count) for uid, count in new_data.items() if int(count) >= 0}
+            async with self.lock:
+                self._backup_ranking()
+                self.ranking_data = validated
+                self._save_ranking()
+            return True, f"✅ {len(validated)} usuarios importados"
+        except Exception as e:
+            return False, f"❌ Error: {str(e)}"
+
+    # --- Métodos de Confesiones ---
+    async def get_next_confession_id(self):
+        async with self.lock:
+            current = self.confession_count
+            self.confession_count += 1
+            self._save_confessions()
+            return current
+
+    def is_banned(self, user_id: int) -> bool:
+        return user_id in self.banned_users
+
+    async def ban_user(self, user_id: int):
+        async with self.lock:
+            if user_id not in self.banned_users:
+                self.banned_users.append(user_id)
+                self._save_confessions()
+
+data_manager = DataManager()
 
 # ==============================================================================
-# 🧠 INTELIGENCIA ARTIFICIAL (Groq Wrapper)
+# 🧠 UTILIDADES E IA
 # ==============================================================================
-
 async def get_ai_joke():
     if not Config.GROQ_KEY: return "⚠️ API Key no configurada."
     try:
@@ -112,82 +198,102 @@ async def get_ai_joke():
             max_tokens=60
         )
         return response.choices[0].message.content.strip()
-    except Exception as e:
-        return f"La IA está durmiendo... 😴"
+    except Exception:
+        return "La IA está durmiendo... 😴"
+
+class UltraProofDetector:
+    @staticmethod
+    def contains_proof_variant(text: str) -> bool:
+        if not text: return False
+        normalized = text.lower().strip()
+        patterns = [r'pr[o0]f+', r'proof', r'proff', r'pr\s*[o0]\s*f+', r'p\s*r\s*[o0]\s*f+', r'#\d+', r'p[r0][o0]f{1,2}']
+        return any(re.search(p, normalized, re.IGNORECASE) for p in patterns) or "proof" in normalized or "proff" in normalized
+
+    @staticmethod
+    def has_attachments_or_embeds(message: discord.Message) -> bool:
+        return len(message.attachments) > 0 or len(message.embeds) > 0
 
 # ==============================================================================
-# 🧩 COMPONENTES DE INTERFAZ (Views & Modals)
+# 🧩 COMPONENTES DE UI (Rankings y Confesiones)
 # ==============================================================================
+class EmbedBuilder:
+    @staticmethod
+    def ranking_pages(ranking_data: list) -> List[discord.Embed]:
+        if not ranking_data:
+            return [discord.Embed(title="🏆 RANKING DE PROOFS - MM", description="Sin datos registrados", color=discord.Color.gold())]
+        
+        medals = ["🥇", "🥈", "🥉"] + ["#️⃣"] * 997
+        pages, current_text, page_num, users_per_page, start_idx = [], "", 1, 0, 0
+        
+        for idx, (uid, count) in enumerate(ranking_data, 1):
+            line = f"{medals[idx - 1] if idx <= 3 else '▫️'} `#{idx:02d}` <@{uid}> • **{count}** ✅\n"
+            if len(current_text) + len(line) > 3900 or users_per_page >= 50:
+                embed = discord.Embed(title=f"🏆 RANKING DE PROOFS (Página {page_num})", description=current_text, color=discord.Color.gold())
+                pages.append(embed)
+                current_text, page_num, users_per_page, start_idx = line, page_num + 1, 1, idx - 1
+            else:
+                if users_per_page == 0: start_idx = idx - 1
+                current_text += line
+                users_per_page += 1
+                
+        if current_text:
+            embed = discord.Embed(title=f"🏆 RANKING DE PROOFS (Página {page_num})", description=current_text, color=discord.Color.gold())
+            pages.append(embed)
+        return pages
 
-# --- 1. BOTÓN PÚBLICO (EL ETERNO) ---
+class PaginationView(discord.ui.View):
+    def __init__(self, pages: List[discord.Embed]):
+        super().__init__(timeout=180.0)
+        self.pages = pages
+        self.current_page = 0
+        self.message = None
+        if len(pages) <= 1:
+            self.previous_button.disabled = True
+            self.next_button.disabled = True
+
+    def update_buttons(self):
+        self.previous_button.disabled = self.current_page == 0
+        self.next_button.disabled = self.current_page >= len(self.pages) - 1
+
+    @discord.ui.button(label="◀️ Anterior", style=discord.ButtonStyle.primary)
+    async def previous_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.current_page -= 1
+        self.update_buttons()
+        await interaction.response.edit_message(embed=self.pages[self.current_page], view=self)
+
+    @discord.ui.button(label="Siguiente ▶️", style=discord.ButtonStyle.primary)
+    async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.current_page += 1
+        self.update_buttons()
+        await interaction.response.edit_message(embed=self.pages[self.current_page], view=self)
+
 class PersistentConfessionButton(discord.ui.View):
     def __init__(self):
-        super().__init__(timeout=None) # Timeout None = Infinito
+        super().__init__(timeout=None)
 
-    @discord.ui.button(
-        label="Enviar Confesión Anónima", 
-        style=discord.ButtonStyle.primary, 
-        emoji="📩", 
-        custom_id="persistent_confess_btn"
-    )
-    async def open_confession_modal(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Verificar Ban antes de abrir modal
-        if DataManager.is_banned(interaction.user.id):
-            return await interaction.response.send_message(
-                embed=discord.Embed(title="⛔ Acceso Denegado", description="Estás baneado del sistema.", color=Colors.BAN),
-                ephemeral=True
-            )
+    @discord.ui.button(label="Enviar Confesión Anónima", style=discord.ButtonStyle.primary, emoji="📩", custom_id="persistent_confess_btn")
+    async def open_modal(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if data_manager.is_banned(interaction.user.id):
+            return await interaction.response.send_message(embed=discord.Embed(title="⛔ Denegado", description="Estás baneado.", color=Colors.BAN), ephemeral=True)
         await interaction.response.send_modal(ConfessionModal())
 
-# --- 2. MODAL DE ESCRITURA ---
 class ConfessionModal(discord.ui.Modal, title="🤫 Tu Secreto"):
-    
-    text_input = discord.ui.TextInput(
-        label="Escribe tu confesión",
-        style=discord.TextStyle.paragraph,
-        placeholder="Escribe aquí... (Totalmente anónimo)",
-        min_length=5,
-        max_length=3500,
-        required=True
-    )
-    
-    img_input = discord.ui.TextInput(
-        label="URL de Imagen (Opcional)",
-        style=discord.TextStyle.short,
-        placeholder="https://...",
-        required=False
-    )
+    text_input = discord.ui.TextInput(label="Confesión", style=discord.TextStyle.paragraph, required=True, max_length=3500)
+    img_input = discord.ui.TextInput(label="URL Imagen (Opcional)", style=discord.TextStyle.short, required=False)
 
     async def on_submit(self, interaction: discord.Interaction):
-        # Capturamos datos
-        content = self.text_input.value
-        image = self.img_input.value if self.img_input.value else None
-        conf_id = DataManager.get_next_id()
-        
+        conf_id = await data_manager.get_next_confession_id()
         log_channel = interaction.guild.get_channel(Config.LOG_CH_ID)
-        if not log_channel:
-            return await interaction.response.send_message("❌ Error: Canal de logs no encontrado.", ephemeral=True)
-
-        # Embed para LOGS (Estilo Expediente)
-        embed = discord.Embed(
-            description=f"📄 **Contenido:**\n{content}",
-            color=Colors.WARNING,
-            timestamp=datetime.now()
-        )
+        
+        embed = discord.Embed(description=f"📄 **Contenido:**\n{self.text_input.value}", color=Colors.WARNING, timestamp=datetime.now())
         embed.set_author(name=f"Expediente #{conf_id}", icon_url=interaction.user.display_avatar.url)
-        embed.add_field(name="👤 Autor", value=f"{interaction.user.mention}\n`{interaction.user.id}`", inline=True)
-        embed.add_field(name="📅 Cuenta", value=f"<t:{int(interaction.user.created_at.timestamp())}:R>", inline=True)
-        embed.set_footer(text="Sistema de Moderación A.E.C MM")
-        
-        if image: embed.set_image(url=image)
+        embed.add_field(name="👤 Autor", value=f"{interaction.user.mention}\n`{interaction.user.id}`")
+        if self.img_input.value: embed.set_image(url=self.img_input.value)
 
-        # Enviar a Logs con panel de control
-        view = AdminControlPanel(content, image, interaction.user, conf_id)
+        view = AdminControlPanel(self.text_input.value, self.img_input.value, interaction.user, conf_id)
         await log_channel.send(embed=embed, view=view)
-        
-        await interaction.response.send_message(f"✅ **Confesión #{conf_id} recibida.** Pendiente de revisión.", ephemeral=True)
+        await interaction.response.send_message(f"✅ Confesión #{conf_id} enviada a revisión.", ephemeral=True)
 
-# --- 3. PANEL DE CONTROL ADMIN ---
 class AdminControlPanel(discord.ui.View):
     def __init__(self, content, image, author, conf_id):
         super().__init__(timeout=None)
@@ -196,164 +302,153 @@ class AdminControlPanel(discord.ui.View):
         self.author = author
         self.conf_id = conf_id
 
-    # Check de seguridad: SOLO MODERADORES
     async def interaction_check(self, interaction: discord.Interaction):
         if not interaction.user.get_role(Config.MOD_ROLE_ID):
-            await interaction.response.send_message("🔒 **Acceso Denegado:** Solo moderadores.", ephemeral=True)
+            await interaction.response.send_message("🔒 Solo moderadores.", ephemeral=True)
             return False
         return True
 
     @discord.ui.button(label="Aprobar", style=discord.ButtonStyle.success, emoji="✅", custom_id="adm_approve")
     async def approve(self, interaction: discord.Interaction, button):
-        public_channel = interaction.guild.get_channel(Config.CONFESSION_CH_ID)
-        
-        # Embed Público Aesthetic
-        embed_pub = discord.Embed(
-            description=self.content,
-            color=Colors.DARK,
-            timestamp=datetime.now()
-        )
-        embed_pub.set_author(name=f"Confesión Anónima #{self.conf_id}", icon_url="https://cdn-icons-png.flaticon.com/512/4645/4645949.png")
+        pub_channel = interaction.guild.get_channel(Config.CONFESSION_CH_ID)
+        embed_pub = discord.Embed(description=self.content, color=Colors.DARK)
+        embed_pub.set_author(name=f"Confesión #{self.conf_id}", icon_url="https://cdn-icons-png.flaticon.com/512/4645/4645949.png")
         if self.image: embed_pub.set_image(url=self.image)
-        embed_pub.set_footer(text="A.E.C MM • Secretos Anónimos")
-
-        # 🔥 AQUÍ ESTÁ LA MAGIA: Enviamos el botón junto con el mensaje
-        await public_channel.send(embed=embed_pub, view=PersistentConfessionButton())
-
-        # Actualizar Log
+        
+        await pub_channel.send(embed=embed_pub, view=PersistentConfessionButton())
+        
         embed_log = interaction.message.embeds[0]
         embed_log.color = Colors.SUCCESS
         embed_log.set_field_at(0, name="📊 Estado", value=f"🟢 **APROBADO**\n👮 {interaction.user.mention}", inline=False)
-        
         await interaction.message.edit(embed=embed_log, view=None)
         await interaction.response.send_message("✅ Publicado.", ephemeral=True)
 
-    @discord.ui.button(label="Denegar", style=discord.ButtonStyle.danger, emoji="✖️", custom_id="adm_deny")
-    async def deny(self, interaction: discord.Interaction, button):
-        embed_log = interaction.message.embeds[0]
-        embed_log.color = Colors.ERROR
-        embed_log.set_field_at(0, name="📊 Estado", value=f"🔴 **DENEGADO**\n👮 {interaction.user.mention}", inline=False)
-        await interaction.message.edit(embed=embed_log, view=None)
-        await interaction.response.send_message("🗑️ Rechazado.", ephemeral=True)
-
     @discord.ui.button(label="Banear", style=discord.ButtonStyle.secondary, emoji="🔨", custom_id="adm_ban")
     async def ban(self, interaction: discord.Interaction, button):
-        DataManager.ban_user(self.author.id)
-        
+        await data_manager.ban_user(self.author.id)
         embed_log = interaction.message.embeds[0]
         embed_log.color = Colors.BAN
         embed_log.set_field_at(0, name="📊 Estado", value=f"⚫ **BANEADO**\n👤 {self.author.mention}", inline=False)
-        
         await interaction.message.edit(embed=embed_log, view=None)
-        await interaction.response.send_message(f"⛔ Usuario {self.author.name} bloqueado.", ephemeral=True)
+        await interaction.response.send_message(f"⛔ Usuario bloqueado.", ephemeral=True)
 
 # ==============================================================================
-# 🤖 CLASE PRINCIPAL DEL BOT
+# 🤖 BOT PRINCIPAL (Núcleo)
 # ==============================================================================
-
-class GalaxyBot(commands.Bot):
+class SuperBot(commands.Bot):
     def __init__(self):
-        super().__init__(command_prefix="$", help_command=None, intents=intents)
+        intents = discord.Intents.default()
+        intents.message_content = True
+        intents.members = True
+        intents.guilds = True
+        # Soporta los prefijos de ambos bots antiguos
+        super().__init__(command_prefix=["$", "!"], help_command=None, intents=intents)
 
     async def setup_hook(self):
-        # Esto regenera el botón al reiniciar el bot para que no muera nunca
         self.add_view(PersistentConfessionButton())
-        print("✅ Hook de persistencia cargado correctamente.")
+        logger.info("✅ Hooks de UI persistente cargados.")
 
     async def on_ready(self):
-        print("------------------------------------------------")
-        print(f"🚀 Galaxy Bot v4.0 Enterprise | {self.user}")
-        print(f"🌍 Guild ID: {Config.GUILD_ID}")
-        print("------------------------------------------------")
+        logger.info("="*50)
+        logger.info(f"🚀 Súper Bot Conectado | {self.user}")
+        logger.info("🛡️ Módulo A.E.C MM: ONLINE")
+        logger.info("🏆 Módulo Ranking: ONLINE")
+        logger.info("="*50)
 
-bot = GalaxyBot()
+    async def on_message(self, message: discord.Message):
+        if message.author.bot:
+            return await self.process_commands(message)
+
+        # 🔍 SISTEMA DE DETECCIÓN DE PROOFS AUTOMÁTICO
+        if message.channel.id == Config.PROOF_CH_ID:
+            if UltraProofDetector.contains_proof_variant(message.content) and UltraProofDetector.has_attachments_or_embeds(message):
+                await data_manager.increment_proof(message.author.id)
+                await message.add_reaction("✅")
+                logger.info(f"✅ PROOF AÑADIDO: {message.author}")
+
+        await self.process_commands(message)
+
+bot = SuperBot()
 
 # ==============================================================================
-# 🚀 COMANDOS
+# 🛠️ COMANDOS DE MODERACIÓN Y CONFESIONES (Prefijo $)
 # ==============================================================================
-
-@bot.command(name="add")
-async def add_middleman(ctx, *, arg=None):
-    """Comando exclusivo para Middlemans"""
-    
-    # 1. Validar Rol
+@bot.command()
+async def add(ctx, *, arg=None):
+    """Añade a un usuario al ticket (Solo Middlemans)"""
     if not ctx.author.get_role(Config.MM_ROLE_ID):
-        embed = discord.Embed(title="🔒 Acceso Denegado", description="No tienes el rol de **Middleman**.", color=Colors.ERROR)
-        return await ctx.send(embed=embed)
-    
-    # 2. Validar Argumento
+        return await ctx.send(embed=discord.Embed(description="🔒 Acceso Denegado. Solo Middlemans.", color=Colors.ERROR))
     if not arg:
         return await ctx.send(embed=discord.Embed(description="⚠️ Uso: `$add @usuario` o ID.", color=Colors.WARNING))
 
-    # 3. Encontrar Usuario
-    user = None
-    # Buscar por mención
-    if ctx.message.mentions:
-        user = ctx.message.mentions[0]
-    # Buscar por ID
-    elif arg.isdigit():
-        user = ctx.guild.get_member(int(arg))
-    
-    if not user:
-        return await ctx.send(embed=discord.Embed(description="❌ Usuario no encontrado en el servidor.", color=Colors.ERROR))
+    user = ctx.message.mentions[0] if ctx.message.mentions else ctx.guild.get_member(int(arg)) if arg.isdigit() else None
+    if not user: return await ctx.send("❌ Usuario no encontrado.")
 
-    # 4. Ejecutar Acción (Dar permisos)
     try:
-        await ctx.channel.set_permissions(
-            user, 
-            view_channel=True, 
-            send_messages=True, 
-            read_message_history=True, 
-            attach_files=True,
-            embed_links=True
-        )
-        
-        # 5. Feedback Visual
-        embed = discord.Embed(
-            description=f"✅ **{user.mention}** ha sido añadido correctamente al ticket.",
-            color=Colors.MM
-        )
-        embed.set_footer(text=f"Moderado por {ctx.author.display_name}")
-        await ctx.send(embed=embed)
-        
-        # 6. Chiste IA
+        await ctx.channel.set_permissions(user, view_channel=True, send_messages=True, read_message_history=True, attach_files=True)
+        await ctx.send(embed=discord.Embed(description=f"✅ **{user.mention}** añadido al ticket.", color=Colors.MM))
         joke = await get_ai_joke()
-        await ctx.send(embed=discord.Embed(description=f"🤖 **Galaxy AI:** {joke}", color=Colors.GALAXY))
-
+        await ctx.send(embed=discord.Embed(description=f"🤖 **IA:** {joke}", color=Colors.GALAXY))
     except Exception as e:
-        await ctx.send(f"❌ Error de Discord: {e}")
+        await ctx.send(f"❌ Error: {e}")
 
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def setup(ctx):
     """Instala el panel de confesiones"""
     await ctx.message.delete()
-    
-    embed = discord.Embed(
-        title="🌌 Confesiones A.E.C MM",
-        description=(
-            "**Bienvenido al espacio de secretos anónimos.**\n\n"
-            "🔹 **Anonimato Total:** Tu nombre se elimina automáticamente.\n"
-            "🔹 **Seguridad:** Todo contenido es revisado por humanos.\n"
-            "🔹 **Instrucciones:** Haz clic en el botón para empezar."
-        ),
-        color=Colors.GALAXY
-    )
-    embed.set_image(url="https://media.discordapp.net/attachments/1011326049646030968/1169336487616122940/confessions_banner.png")
-    embed.set_footer(text="Powered by Galaxy Bot System")
-    
+    embed = discord.Embed(title="🌌 Confesiones A.E.C MM", description="Haz clic en el botón para enviar una confesión anónima.", color=Colors.GALAXY)
     await ctx.send(embed=embed, view=PersistentConfessionButton())
 
 # ==============================================================================
-# 🔥 EJECUCIÓN
+# 🏆 COMANDOS DE RANKING (Prefijo !)
 # ==============================================================================
-
-if __name__ == "__main__":
-    print("🛰️ Iniciando servidor de salud...")
-    keep_alive()  # <-- Esto abre la "ventanilla" para que Koyeb no te mate
+@bot.command(name='rank-mm')
+async def rank_mm(ctx):
+    """Muestra el ranking de proofs"""
+    ranking = await data_manager.get_ranking()
+    pages = EmbedBuilder.ranking_pages(ranking)
     
+    if len(pages) == 1:
+        await ctx.send(embed=pages[0])
+    else:
+        view = PaginationView(pages)
+        view.message = await ctx.send(embed=pages[0], view=view)
+
+@bot.command(name='borrar-ranking')
+async def borrar_ranking(ctx, user: discord.User):
+    """Borra a un usuario del ranking (Solo Admin)"""
+    if ctx.author.id != Config.ADMIN_ID: return await ctx.send("🔒 Denegado.")
+    success = await data_manager.remove_user(user.id)
+    await ctx.send(f"✅ {user.mention} eliminado del ranking." if success else f"❌ {user.mention} no estaba en el ranking.")
+
+@bot.command(name='exportar-datos')
+async def exportar_datos(ctx):
+    """Exporta el JSON del ranking (Solo Admin)"""
+    if ctx.author.id != Config.ADMIN_ID: return await ctx.send("🔒 Denegado.")
+    data = await data_manager.export_ranking()
+    filename = BACKUP_DIR / f"export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    with open(filename, 'w', encoding='utf-8') as f: f.write(data)
+    await ctx.send("✅ Exportado:", file=discord.File(filename))
+
+@bot.command(name='importar-datos')
+async def importar_datos(ctx):
+    """Importa un JSON para el ranking (Solo Admin)"""
+    if ctx.author.id != Config.ADMIN_ID: return await ctx.send("🔒 Denegado.")
+    if not ctx.message.attachments or not ctx.message.attachments[0].filename.endswith('.json'):
+        return await ctx.send("❌ Adjunta un archivo .json válido.")
+    
+    content = (await ctx.message.attachments[0].read()).decode('utf-8')
+    success, msg = await data_manager.import_ranking(content)
+    await ctx.send(msg)
+
+# ==============================================================================
+# 🚀 INICIO DEL SISTEMA
+# ==============================================================================
+if __name__ == "__main__":
+    logger.info("🛰️ Iniciando servidor Flask (Keep-Alive)...")
+    keep_alive()
     try:
         bot.run(Config.TOKEN)
     except Exception as e:
-        print(f"❌ Error al iniciar el bot: {e}")
-        
+        logger.critical(f"❌ Fallo al iniciar Discord: {e}")
