@@ -1,6 +1,6 @@
 """
 ╔═══════════════════════════════════════════════════════════════╗
-║      🚀 GALAXY BOT ENTERPRISE & MM RANKING v6.0 (ULTIMATE)    ║
+║      🚀 GALAXY BOT ENTERPRISE & MM RANKING v7.0 (MASTER)      ║
 ║    Sistema Unificado: Moderación, Confesiones, Proofs & IA    ║
 ║           Motor: MongoDB Atlas (ServerApi v1) + Groq          ║
 ╚═══════════════════════════════════════════════════════════════╝
@@ -12,13 +12,12 @@ from discord import app_commands
 import os
 import asyncio
 import logging
-import re
 from datetime import datetime
 from dotenv import load_dotenv
 from flask import Flask
 from threading import Thread
 
-# Importaciones de MongoDB (Plantilla Oficial)
+# Importaciones de MongoDB (Plantilla Oficial Estricta)
 import pymongo
 from pymongo.mongo_client import MongoClient
 from pymongo.server_api import ServerApi
@@ -35,11 +34,11 @@ startTime = datetime.now()
 @app.route('/')
 def home():
     uptime = datetime.now() - startTime
-    return f"<h2>✨ GALAXY BOT v6.0 ONLINE</h2><p>Uptime: {uptime}</p><p>Estado: Sistemas de IA y BD Operativos.</p>"
+    return f"<h2>✨ GALAXY BOT v7.0 MASTER ONLINE</h2><p>Uptime: {uptime}</p><p>Estado: Sistemas de IA y MongoDB Operativos al 100%.</p>"
 
 def run_web_server():
     log = logging.getLogger('werkzeug')
-    log.setLevel(logging.ERROR)
+    log.setLevel(logging.ERROR) # Apagamos logs molestos de la web
     app.run(host='0.0.0.0', port=8080)
 
 def keep_alive():
@@ -60,6 +59,7 @@ class Config:
     GROQ_KEY = os.getenv("GROQ_API_KEY")
     MONGO_URI = os.getenv("MONGO_URI")
     
+    # IDs de la comunidad A.E.C.
     GUILD_ID = int(os.getenv("GUILD_ID", 0))
     MM_ROLE_ID = int(os.getenv("MM_ROLE_ID", 0))
     PROOF_CH_ID = int(os.getenv("PROOF_CHANNEL_ID", 0))
@@ -68,11 +68,11 @@ class Colors:
     MAIN = 0x2B2D31
     SUCCESS = 0x43B581
     ERROR = 0xF04747
-    AI = 0x5865F2
-    RANK = 0xFFD700
+    AI = 0x00B0F4     # Azul Cyan para la IA
+    RANK = 0xFFD700   # Dorado para el Top
 
 # ==============================================================================
-# 🎨 EMBED FACTORY (Interfaz Premium)
+# 🎨 EMBED FACTORY (Interfaz Premium y División Inteligente)
 # ==============================================================================
 class EmbedFactory:
     @staticmethod
@@ -88,12 +88,45 @@ class EmbedFactory:
         return embed
 
     @staticmethod
-    def ai_response(user: discord.Member, response: str) -> discord.Embed:
-        clean_response = response[:3900] + "\n\n`[Respuesta cortada por límite de texto]`" if len(response) > 3900 else response
-        embed = discord.Embed(description=clean_response, color=Colors.AI)
-        embed.set_author(name="🧠 A.E.C. Inteligencia Artificial", icon_url="https://cdn-icons-png.flaticon.com/512/1693/1693746.png")
-        embed.set_footer(text=f"Respuesta para {user.display_name} ✨", icon_url=user.display_avatar.url)
-        return embed
+    def ai_response(user: discord.Member, response: str) -> list[discord.Embed]:
+        """Divide textos inmensos en múltiples Embeds sin cortar palabras por la mitad."""
+        chunks = []
+        max_chars = 3900 # Límite ultra-seguro
+        text = response
+        
+        while len(text) > max_chars:
+            # Buscar el último salto de línea para cortar un párrafo limpio
+            split_idx = text.rfind('\n', 0, max_chars)
+            if split_idx == -1:
+                # Si no hay saltos, buscar el último espacio
+                split_idx = text.rfind(' ', 0, max_chars)
+            if split_idx == -1:
+                # Corte forzado si es una cadena sin espacios (raro)
+                split_idx = max_chars
+            
+            chunks.append(text[:split_idx].strip())
+            text = text[split_idx:].strip()
+        
+        if text:
+            chunks.append(text)
+            
+        embeds = []
+        for i, chunk in enumerate(chunks):
+            embed = discord.Embed(description=chunk, color=Colors.AI)
+            
+            # Solo el primer fragmento lleva el título general
+            if i == 0:
+                embed.set_author(name="🧠 A.E.C. Inteligencia Artificial", icon_url="https://cdn-icons-png.flaticon.com/512/1693/1693746.png")
+            
+            # Numeración de partes si hay más de un fragmento
+            footer_text = f"Respuesta para {user.display_name} ✨"
+            if len(chunks) > 1:
+                footer_text += f" | Parte {i+1}/{len(chunks)}"
+                
+            embed.set_footer(text=footer_text, icon_url=user.display_avatar.url)
+            embeds.append(embed)
+            
+        return embeds
 
     @staticmethod
     def success(title: str, desc: str) -> discord.Embed:
@@ -104,21 +137,18 @@ class EmbedFactory:
         return discord.Embed(title=f"❌ {title}", description=desc, color=Colors.ERROR)
 
 # ==============================================================================
-# 💾 MONGODB MANAGER (Motor Oficial Atlas v1)
+# 💾 MONGODB MANAGER (Motor Oficial Atlas v1 Estricto)
 # ==============================================================================
 class MongoDBManager:
     def __init__(self):
         try:
-            # Conexión ultra-estable usando ServerApi v1
             self.client = MongoClient(
                 Config.MONGO_URI, 
                 server_api=ServerApi('1'),
                 serverSelectionTimeoutMS=5000
             )
-            
-            # Ping de seguridad
             self.client.admin.command('ping')
-            logger.info("✅ Pinged your deployment. ¡Conectado a MongoDB Atlas!")
+            logger.info("✅ Ping exitoso. Conectado a MongoDB Atlas (API v1).")
 
             self.db = self.client["AEC_Database"]
             self.col_ranking = self.db["ranking"]
@@ -160,7 +190,7 @@ class MongoDBManager:
 db = MongoDBManager()
 
 # ==============================================================================
-# 🧠 CEREBRO IA (GROQ) Y SYSTEM PROMPT
+# 🧠 CEREBRO IA (GROQ) Y SYSTEM PROMPT DE A.E.C.
 # ==============================================================================
 SYSTEM_PROMPT = """
 Eres el Asistente Oficial de A. E. C. (Android Edit Community). Eres alegre, respetuoso y enérgico ✨.
@@ -214,7 +244,7 @@ class AIHandler:
 ai = AIHandler()
 
 # ==============================================================================
-# 🤖 NÚCLEO DEL BOT Y EVENTOS
+# 🤖 NÚCLEO DEL BOT Y EVENTOS PRINCIPALES
 # ==============================================================================
 class SuperBot(commands.Bot):
     def __init__(self):
@@ -225,89 +255,93 @@ class SuperBot(commands.Bot):
 
     async def setup_hook(self):
         await self.tree.sync()
-        logger.info("✅ Slash commands sincronizados en el servidor.")
+        logger.info("✅ Comandos de barra (Slash) sincronizados con éxito.")
 
     async def on_ready(self):
         logger.info("="*50)
-        logger.info(f"🚀 A.E.C. BOT v6.0 ONLINE | Conectado como: {self.user}")
+        logger.info(f"🚀 A.E.C. BOT v7.0 ONLINE | Identidad: {self.user}")
         logger.info("="*50)
 
     async def on_command_error(self, ctx, error):
+        """Manejo global de errores para evitar crasheos y dar feedback bonito."""
         if isinstance(error, commands.CommandOnCooldown):
-            await ctx.send(embed=EmbedFactory.error("Cálmate un poco", f"Debes esperar {error.retry_after:.2f} segundos para usar este comando de nuevo."), delete_after=5)
+            await ctx.send(embed=EmbedFactory.error("¡Demasiado rápido! ⏳", f"Por favor, espera `{error.retry_after:.1f}` segundos antes de volver a usar este comando."), delete_after=6)
         elif isinstance(error, commands.MissingPermissions):
-            await ctx.send(embed=EmbedFactory.error("Acceso Denegado", "No tienes permisos para ejecutar esto."))
+            await ctx.send(embed=EmbedFactory.error("Acceso Denegado 🛑", "Tus permisos no son suficientes para ejecutar esta acción."))
 
     async def on_message(self, message: discord.Message):
         if message.author.bot: return
 
         # --- 1. RANKING AUTOMÁTICO DE PROOFS ---
         if message.channel.id == Config.PROOF_CH_ID:
+            # Validación estricta: debe contener la palabra proof y tener una imagen/archivo
             if "proof" in message.content.lower() and message.attachments:
                 await db.increment_proof(message.author.id)
                 await message.add_reaction("✅")
-                logger.info(f"Proof registrada para {message.author.display_name}")
+                logger.info(f"Proof sumada a: {message.author.display_name}")
 
-        # --- 2. CHAT IA GLOBAL CON GHOST PING ---
+        # --- 2. CHAT IA GLOBAL CON GHOST PING Y DIVISIÓN DE EMBEDS ---
         ai_channel_id = db.get_setting("ai_chat_channel")
         if ai_channel_id and message.channel.id == ai_channel_id:
+            # Ignoramos mensajes que empiezan con prefijos de comandos
             if not message.content.startswith(("/", "!", "$")):
                 
-                # Ghost Ping (Se envía y se borra al instante)
+                # Ghost Ping silencioso
                 ghost = await message.channel.send(message.author.mention)
                 await ghost.delete()
 
-                # Preparamos el texto limpio y el embed de carga
+                # Limpieza de tags e inicio de carga
                 clean_text = ai.replace_mentions(message)
                 gif = db.get_setting("ai_loading_gif")
                 status_msg = await message.channel.send(embed=EmbedFactory.ai_loading(message.author, clean_text, gif))
 
                 try:
-                    # Generación de respuesta con manejo de errores
                     respuesta = await ai.generate_response(f"{message.author.display_name} dice: {clean_text}")
-                    await status_msg.edit(embed=EmbedFactory.ai_response(message.author, respuesta))
+                    # Magia: Pasamos la lista de Embeds (soporta respuestas kilométricas)
+                    await status_msg.edit(embed=None, embeds=EmbedFactory.ai_response(message.author, respuesta))
                 except Exception as e:
-                    await status_msg.edit(embed=EmbedFactory.error("Fallo Neuronal 🧠", f"Mi conexión con Groq falló temporalmente.\n**Detalle:** `{str(e)[:100]}`"))
-                    logger.error(f"Error IA: {e}")
+                    await status_msg.edit(embed=EmbedFactory.error("Fallo Neuronal 🧠", f"Hubo un cortocircuito en la IA.\n**Detalle técnico:** `{str(e)[:150]}`"))
+                    logger.error(f"Error de Groq: {e}")
 
+        # Procesar comandos normales después de los eventos
         await self.process_commands(message)
 
 bot = SuperBot()
 
 # ==============================================================================
-# 🪄 COMANDOS SLASH (CONFIGURACIÓN)
+# 🪄 COMANDOS SLASH (CONFIGURACIÓN PARA ADMINS)
 # ==============================================================================
-@bot.tree.command(name="registrer-chat", description="Fija este canal como el cerebro de la IA 🧠")
+@bot.tree.command(name="registrer-chat", description="Fija este canal como el cerebro interactivo de la IA 🧠")
 @app_commands.default_permissions(administrator=True)
 async def register_chat(interaction: discord.Interaction):
     db.set_setting("ai_chat_channel", interaction.channel_id)
     await interaction.response.send_message(embed=EmbedFactory.success(
-        "Núcleo IA Conectado", 
-        "¡Excelente! Ahora leeré y responderé automáticamente en este canal. ✨"
+        "Núcleo IA Vinculado", 
+        "¡Configuración exitosa! La IA ahora leerá y responderá a todo en este canal sin necesidad de comandos. ✨"
     ))
 
-@bot.tree.command(name="carga-animacion", description="Configura un GIF animado para cuando la IA está pensando ⏳")
-@app_commands.describe(url="Enlace directo a una imagen GIF")
+@bot.tree.command(name="carga-animacion", description="Añade un GIF espectacular para cuando la IA está pensando ⏳")
+@app_commands.describe(url="Enlace directo a una imagen (terminada en .gif, .png, etc)")
 @app_commands.default_permissions(administrator=True)
 async def carga_animacion(interaction: discord.Interaction, url: str):
     if not url.startswith("http"):
-        return await interaction.response.send_message("❌ La URL debe comenzar con http o https.", ephemeral=True)
+        return await interaction.response.send_message("❌ La URL es inválida. Asegúrate de que empiece con http:// o https://", ephemeral=True)
     db.set_setting("ai_loading_gif", url)
-    embed = EmbedFactory.success("Animación de Carga Lista", "La interfaz lucirá mucho más dinámica ahora. 🚀")
+    embed = EmbedFactory.success("Animación de Carga Lista", "¡La interfaz lucirá mucho más dinámica a partir de ahora! 🚀")
     embed.set_thumbnail(url=url)
     await interaction.response.send_message(embed=embed)
 
 # ==============================================================================
-# 🛠️ COMANDOS CLÁSICOS (RANKING & MOD)
+# 🛠️ COMANDOS CLÁSICOS (RANKING CON PAGINACIÓN Y COOLDOWN)
 # ==============================================================================
 @bot.command(name='rank-mm')
-@commands.cooldown(1, 5, commands.BucketType.user) # Previene spam del comando
+@commands.cooldown(1, 5, commands.BucketType.user) # Anti-Spam: 1 uso cada 5 segundos por usuario
 async def rank_mm(ctx):
     ranking = await db.get_ranking()
     if not ranking:
-        return await ctx.send(embed=EmbedFactory.error("Ranking Vacío", "Aún no hay proofs registradas en la base de datos."))
+        return await ctx.send(embed=EmbedFactory.error("Ranking Vacío", "No hay registros de proofs en la base de datos central."))
     
-    # Sistema de Paginación simple (Top 20 para no saturar la pantalla)
+    # Diseño estético del Top 20
     texto = ""
     medals = ["🥇", "🥈", "🥉"] + ["🏅"] * 17
     
@@ -315,8 +349,8 @@ async def rank_mm(ctx):
         medal = medals[idx] if idx < len(medals) else "🔹"
         texto += f"{medal} `#{idx+1:02d}` <@{uid}> • **{count}** Proofs ✅\n"
         
-    embed = discord.Embed(title="🏆 RANKING DE PROOFS OFICIAL", description=texto, color=Colors.RANK)
-    embed.set_footer(text=f"Total de usuarios en ranking: {len(ranking)}")
+    embed = discord.Embed(title="🏆 RANKING OFICIAL DE PROOFS", description=texto, color=Colors.RANK)
+    embed.set_footer(text=f"Total de miembros rankeados: {len(ranking)} ✨")
     await ctx.send(embed=embed)
 
 # ==============================================================================
@@ -324,8 +358,7 @@ async def rank_mm(ctx):
 # ==============================================================================
 if __name__ == "__main__":
     keep_alive()
-    # Verifica que el token exista antes de arrancar para evitar crasheos feos
     if not Config.TOKEN:
-        logger.critical("❌ ERROR: El TOKEN de Discord no está en tu archivo .env")
+        logger.critical("❌ FATAL: No se encontró el DISCORD_TOKEN en el archivo .env")
     else:
         bot.run(Config.TOKEN)
