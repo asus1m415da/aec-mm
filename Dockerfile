@@ -16,7 +16,8 @@ RUN pip install --no-cache-dir \
     groq \
     flask \
     requests \
-    fake-useragent
+    fake-useragent \
+    pymongo[srv]
 
 # Copiamos el código de tu bot al contenedor
 COPY . .
