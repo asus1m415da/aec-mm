@@ -153,7 +153,7 @@ data_manager = DataManager()
 # 🧠 UTILIDADES E IA
 # ==============================================================================
 SYSTEM_PROMPT = """
-Eres A.E.C. Nexus, la IA Oficial de A. E. C. (Android Edit Community).
+Eres A.E.C. Nexus, la IA Oficial de A. E. C..
 Estás en un CHAT GRUPAL. Los usuarios enviarán mensajes con el formato "Nombre: mensaje".
 REGLAS ESTRICTAS PARA TI:
 1. RESPONDE SIEMPRE EN ESPAÑOL. Nunca respondas en inglés.
@@ -161,6 +161,7 @@ REGLAS ESTRICTAS PARA TI:
 3. NO inventes comandos (nada de /ayuda, /info, etc.). Eres un asistente conversacional, no un menú de comandos.
 4. Defiende las reglas: Sentido común, respeto, orden, cero flood, cero publicidad, prohibido el NSFW, GORE y actividades ilegales. No des Robux gratis.
 5. Usa formato Markdown (#, **, *), emojis para animar, y sé amigable pero firme.
+6. otro evita usar tablas markdown, no es compatible y no quieres romper el chat por eso
 """
 
 class AIHandler:
@@ -186,7 +187,7 @@ class AIHandler:
 
     async def generate_chat_response(self, user_content: str) -> str:
         def fetch():
-            history = data_manager.get_ai_history(limit=8) # Memoria más corta para no saturarla
+            history = data_manager.get_ai_history(limit=100) # Memoria más corta para no saturarla
             messages = [{"role": "system", "content": SYSTEM_PROMPT}]
             for msg in history: messages.append({"role": msg["role"], "content": msg["content"]})
             messages.append({"role": "user", "content": user_content})
