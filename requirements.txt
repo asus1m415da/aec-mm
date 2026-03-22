@@ -4,3 +4,4 @@ fake-useragent
 flask
 python-dotenv
 groq
+pymongo
