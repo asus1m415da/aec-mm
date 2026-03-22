@@ -187,13 +187,13 @@ class AIHandler:
 
     async def generate_chat_response(self, user_content: str) -> str:
         def fetch():
-            history = data_manager.get_ai_history(limit=100) # Memoria más corta para no saturarla
+            history = data_manager.get_ai_history(limit=30) # Memoria más corta para no saturarla
             messages = [{"role": "system", "content": SYSTEM_PROMPT}]
             for msg in history: messages.append({"role": msg["role"], "content": msg["content"]})
             messages.append({"role": "user", "content": user_content})
 
             # Temperatura a 0.7 para que sea lógica y deje de alucinar cosas en inglés o comandos raros
-            comp = self.client.chat.completions.create(model="groq/compound-mini", messages=messages, temperature=0.7, max_completion_tokens=2000)
+            comp = self.client.chat.completions.create(model="groq/compound", messages=messages, temperature=0.9, max_completion_tokens=2430)
             return comp.choices[0].message.content
 
         data_manager.add_ai_message("user", user_content)
