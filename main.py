@@ -1,6 +1,6 @@
 """
 ╔═══════════════════════════════════════════════════════════════╗
-║      🚀 GALAXY BOT ENTERPRISE & MM RANKING v9.0 (FUSIÓN)      ║
+║      🚀 GALAXY BOT ENTERPRISE & MM RANKING v9.1 (MASTER IA)   ║
 ║    Sistema Unificado: Moderación, Confesiones, Proofs & IA    ║
 ╚═══════════════════════════════════════════════════════════════╝
 """
@@ -80,7 +80,7 @@ class Colors:
     AI = 0x00B0F4
 
 # ==============================================================================
-# 💾 GESTOR DE DATOS MONGODB ATLAS (Reemplaza a los JSON locales)
+# 💾 GESTOR DE DATOS MONGODB ATLAS
 # ==============================================================================
 class DataManager:
     def __init__(self):
@@ -145,7 +145,7 @@ class DataManager:
     def set_setting(self, key: str, value: any): self.col_settings.update_one({"_id": key}, {"$set": {"value": value}}, upsert=True)
     def get_setting(self, key: str, default=None): doc = self.col_settings.find_one({"_id": key}); return doc["value"] if doc else default
     def add_ai_message(self, role: str, content: str): self.col_memory.insert_one({"role": role, "content": content, "timestamp": datetime.now()})
-    def get_ai_history(self, limit=12) -> list: return list(reversed(list(self.col_memory.find().sort("timestamp", pymongo.DESCENDING).limit(limit))))
+    def get_ai_history(self, limit=8) -> list: return list(reversed(list(self.col_memory.find().sort("timestamp", pymongo.DESCENDING).limit(limit))))
 
 data_manager = DataManager()
 
@@ -153,10 +153,14 @@ data_manager = DataManager()
 # 🧠 UTILIDADES E IA
 # ==============================================================================
 SYSTEM_PROMPT = """
-Eres el Asistente Oficial de A. E. C. Eres alegre, respetuoso y enérgico ✨.
-Reglas: 1. Sentido común. 2. Respeto. 3. Orden. 4. Reglas de Discord. 5. No publicidad. 6. No enviar código malicioso. 7. Respeto al staff. 8. No NSFW/GORE/SPAM.
-Sanciones: 3 warns = 1 kick. 1 kick + 3 warns = Ban definitivo.
-Formato OBLIGATORIO: Usa Markdown (#, ##, **, *), emojis para animar, || para secretos y ` ` para comandos.
+Eres A.E.C. Nexus, la IA Oficial de A. E. C. (Android Edit Community).
+Estás en un CHAT GRUPAL. Los usuarios enviarán mensajes con el formato "Nombre: mensaje".
+REGLAS ESTRICTAS PARA TI:
+1. RESPONDE SIEMPRE EN ESPAÑOL. Nunca respondas en inglés.
+2. Fíjate muy bien en el nombre de quien envía el ÚLTIMO mensaje y responde directamente a esa persona.
+3. NO inventes comandos (nada de /ayuda, /info, etc.). Eres un asistente conversacional, no un menú de comandos.
+4. Defiende las reglas: Sentido común, respeto, orden, cero flood, cero publicidad, prohibido el NSFW, GORE y actividades ilegales. No des Robux gratis.
+5. Usa formato Markdown (#, **, *), emojis para animar, y sé amigable pero firme.
 """
 
 class AIHandler:
@@ -182,12 +186,13 @@ class AIHandler:
 
     async def generate_chat_response(self, user_content: str) -> str:
         def fetch():
-            history = data_manager.get_ai_history()
+            history = data_manager.get_ai_history(limit=8) # Memoria más corta para no saturarla
             messages = [{"role": "system", "content": SYSTEM_PROMPT}]
             for msg in history: messages.append({"role": msg["role"], "content": msg["content"]})
             messages.append({"role": "user", "content": user_content})
 
-            comp = self.client.chat.completions.create(model="groq/compound-mini", messages=messages, temperature=1.1, max_completion_tokens=3281)
+            # Temperatura a 0.7 para que sea lógica y deje de alucinar cosas en inglés o comandos raros
+            comp = self.client.chat.completions.create(model="groq/compound-mini", messages=messages, temperature=0.7, max_completion_tokens=2000)
             return comp.choices[0].message.content
 
         data_manager.add_ai_message("user", user_content)
@@ -247,7 +252,7 @@ class EmbedBuilder:
         embeds = []
         for i, chunk in enumerate(chunks):
             embed = discord.Embed(description=chunk, color=Colors.AI)
-            if i == 0: embed.set_author(name="🧠 A.E.C. IA", icon_url="https://cdn-icons-png.flaticon.com/512/1693/1693746.png")
+            if i == 0: embed.set_author(name="🧠 A.E.C. Nexus", icon_url="https://cdn-icons-png.flaticon.com/512/1693/1693746.png")
             embed.set_footer(text=f"Respuesta para {user.display_name} | Parte {i+1}/{len(chunks)}" if len(chunks)>1 else f"Respuesta para {user.display_name}", icon_url=user.display_avatar.url)
             embeds.append(embed)
         return embeds
@@ -378,7 +383,8 @@ class SuperBot(commands.Bot):
             msg_ui = await message.channel.send(embed=embed_load)
             try:
                 resp = await ai.generate_chat_response(f"{message.author.display_name}: {clean}")
-                await msg_ui.edit(embeds=EmbedBuilder.ai_response(message.author, resp))
+                # Corrección del error 'Cannot mix embed and embeds' usando embed=None explícitamente
+                await msg_ui.edit(embed=None, embeds=EmbedBuilder.ai_response(message.author, resp))
             except Exception as e:
                 await msg_ui.edit(embed=discord.Embed(title="❌ Error IA", description=f"`{e}`", color=Colors.ERROR))
 
