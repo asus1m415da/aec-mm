@@ -473,7 +473,7 @@ class SuperBot(commands.Bot):
             try:
                 # MANDAMOS EL FORMATO EXACTO: "Nombre: Mensaje"
                 resp = await ai.generate_chat_response(f"{message.author.display_name}: {clean}")
-                await msg_ui.edit(embed=None, embeds=EmbedBuilder.ai_response(message.author, resp))
+                await msg_ui.edit(embeds=EmbedBuilder.ai_response(message.author, resp))
             except Exception as e:
                 await msg_ui.edit(embed=discord.Embed(title="❌ Error IA", description=f"Nexus está sobrecargado o en enfriamiento.\n`{str(e)[:100]}`", color=Colors.ERROR))
 
