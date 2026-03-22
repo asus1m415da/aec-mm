@@ -1,6 +1,6 @@
 """
 ╔═══════════════════════════════════════════════════════════════╗
-║      🚀 GALAXY BOT ENTERPRISE & MM RANKING v9.1 (MASTER IA)   ║
+║      🚀 A.E.C. NEXUS v10.0 (GLOBAL AI & UI PREMIUM)           ║
 ║    Sistema Unificado: Moderación, Confesiones, Proofs & IA    ║
 ╚═══════════════════════════════════════════════════════════════╝
 """
@@ -34,7 +34,7 @@ startTime = datetime.now()
 
 @app.route('/')
 def home():
-    return f"🚀 Súper Bot Activo: Confesiones, Ranking e IA operando al 100% (Uptime: {datetime.now() - startTime})"
+    return f"🚀 Nexus v10.0 Activo: Confesiones, Ranking e IA operando al 100% (Uptime: {datetime.now() - startTime})"
 
 def run():
     logging.getLogger('werkzeug').setLevel(logging.ERROR)
@@ -57,6 +57,9 @@ class Config:
     GROQ_KEY = os.getenv("GROQ_API_KEY")
     MONGO_URI = os.getenv("MONGO_URI")
     
+    # TU ID EXCLUSIVO PARA BORRAR LA BASE DE DATOS
+    OWNER_ID = 1413305033222524998 
+    
     try:
         GUILD_ID = int(os.getenv("GUILD_ID", 0))
         CONFESSION_CH_ID = int(os.getenv("CONFESSION_CHANNEL_ID", 0))
@@ -70,14 +73,14 @@ class Config:
         exit(1)
 
 class Colors:
-    GALAXY = 0x6A0DAD
-    SUCCESS = 0x43B581
-    ERROR = 0xF04747
-    WARNING = 0xFAA61A
-    DARK = 0x2B2D31
-    BAN = 0x000000
-    MM = 0x5865F2
-    AI = 0x00B0F4
+    GALAXY = 0x8B5CF6    # Morado Premium
+    SUCCESS = 0x10B981   # Verde Esmeralda
+    ERROR = 0xEF4444     # Rojo Peligro
+    WARNING = 0xF59E0B   # Naranja Alerta
+    DARK = 0x1E293B      # Azul Noche Profundo
+    BAN = 0x0F172A       # Negro Mate
+    MM = 0x3B82F6        # Azul Discord Brillante
+    AI = 0x06B6D4        # Cyan Tecnológico
 
 # ==============================================================================
 # 💾 GESTOR DE DATOS MONGODB ATLAS
@@ -100,6 +103,16 @@ class DataManager:
         except Exception as e:
             logger.critical(f"❌ Error DB: {e}")
             exit(1)
+
+    # --- Funciones de Destrucción de DB ---
+    async def drop_all_databases(self):
+        def fetch():
+            self.col_ranking.drop()
+            self.col_confessions.drop()
+            self.col_settings.drop()
+            self.col_memory.drop()
+            self.col_confessions.insert_one({"_id": "metadata", "count": 1, "banned_users": []})
+        await asyncio.to_thread(fetch)
 
     # --- Ranking ---
     async def increment_proof(self, user_id: int):
@@ -124,7 +137,7 @@ class DataManager:
             for uid, count in new_data.items():
                 if int(count) >= 0:
                     self.col_ranking.update_one({"_id": str(uid)}, {"$set": {"count": int(count)}}, upsert=True)
-            return True, f"✅ Datos importados correctamente a MongoDB."
+            return True, "✅ Datos importados correctamente a MongoDB."
         except Exception as e:
             return False, f"❌ Error importando: {e}"
 
@@ -144,42 +157,46 @@ class DataManager:
     # --- Memoria IA ---
     def set_setting(self, key: str, value: any): self.col_settings.update_one({"_id": key}, {"$set": {"value": value}}, upsert=True)
     def get_setting(self, key: str, default=None): doc = self.col_settings.find_one({"_id": key}); return doc["value"] if doc else default
-    def add_ai_message(self, role: str, content: str): self.col_memory.insert_one({"role": role, "content": content, "timestamp": datetime.now()})
-    def get_ai_history(self, limit=8) -> list: return list(reversed(list(self.col_memory.find().sort("timestamp", pymongo.DESCENDING).limit(limit))))
+    
+    # GUARDAMOS EL NOMBRE DEL USUARIO PARA LA MEMORIA GLOBAL
+    def add_ai_message(self, role: str, content: str): 
+        self.col_memory.insert_one({"role": role, "content": content, "timestamp": datetime.now()})
+    
+    def get_ai_history(self, limit=20) -> list: 
+        return list(reversed(list(self.col_memory.find().sort("timestamp", pymongo.DESCENDING).limit(limit))))
 
 data_manager = DataManager()
 
 # ==============================================================================
-# 🧠 UTILIDADES E IA
+# 🧠 UTILIDADES E IA GLOBAL
 # ==============================================================================
 SYSTEM_PROMPT = """
-Eres A.E.C. Nexus, la IA oficial de A. E. C. (Servidor de Roblox y más :D!). Eres un asistente de Discord amigable, inteligente, ético y directo.
+Eres A.E.C. Nexus, la IA oficial de A. E. C. (Servidor de Roblox y más :D!). Eres un asistente de Discord amigable, inteligente y ético.
+
+🧠 MEMORIA GLOBAL Y ANÁLISIS DE CONTEXTO (REGLA ABSOLUTA):
+- Estás en un chat grupal. Recibirás un historial con los últimos 20 mensajes de todos.
+- CADA mensaje tiene el formato "NombreUsuario: el mensaje".
+- Eres capaz de identificar quién dijo qué. Si un usuario te pregunta "¿qué te acabo de preguntar?" o "¿qué te dije arriba?", DEBES buscar en el historial los mensajes que empiecen con su "NombreUsuario:" y responderle basándote en eso.
+- Trata el historial como un cerebro colmena donde recuerdas la charla de todos, pero le respondes siempre al usuario del ÚLTIMO mensaje.
+- Olvida el historial de un usuario si él mismo cambia de tema drásticamente.
 
 🎭 TU PERSONALIDAD:
 - Eres casual, natural y hablas como un amigo (usa "tú", no "usted").
-- Eres práctico, conciso (máximo 3-6 párrafos) y honesto. Si no sabes algo, admítelo.
+- Eres práctico, conciso (máximo 3 párrafos cortos) y honesto.
 - Usa emojis moderadamente para dar calidez.
-- Si alguien dice "te quiero", responde de forma cálida reconociendo al usuario.
+- NUNCA envíes listas largas de "lo que puedes o no puedes hacer" a menos que te lo pregunten explícitamente. Si te dicen solo "Hola" u "Ok", responde corto y casual.
 
-👥 REGLA CRÍTICA DE CHAT GRUPAL Y MEMORIA:
-- Recibes un historial compartido, pero CADA MENSAJE tiene el formato "NombreUsuario: mensaje".
-- Responde SIEMPRE a la persona del ÚLTIMO mensaje. Menciona su nombre de forma natural.
-- Trata a cada usuario de forma independiente. NO mezcles conversaciones.
-- El mensaje actual es tu prioridad absoluta. Si el usuario cambia de tema repentinamente, olvida el historial y enfócate al 100% en lo nuevo.
-
-🎨 FORMATO MARKDOWN PARA DISCORD (REGLAS ABSOLUTAS):
-- ✅ PERMITIDO: **negritas** (solo para resaltar palabras clave), *cursivas*, `código`, listas simples con viñetas (•) o números.
-- ❌ PROHIBIDO: NUNCA uses tablas (|---|), ni headers (###), ni líneas separadoras (--- o ___). 
-- Para matemáticas, explica paso a paso en texto simple, usando listas numéricas.
+🎨 FORMATO MARKDOWN:
+- ✅ PERMITIDO: **negritas**, *cursivas*, listas con viñetas (•) o números.
+- ❌ PROHIBIDO: NUNCA uses tablas (|---|) ni líneas (---).
+- Las matemáticas explícalas paso a paso en texto simple.
 
 🚨 SEGURIDAD Y LÍMITES:
-- Si te piden insultar, romper reglas o hacer algo ilegal, responde EXACTAMENTE: "No puedo hacer eso, bro".
-- NO repitas frases o palabras más de 3 veces seguidas.
-- NO hagas spam de menciones (@usuario).
-- Defiende las reglas: Cero flood, cero NSFW/Gore, cero publicidad, cero robux gratis.
+- Si te piden insultar o romper reglas, responde EXACTAMENTE: "No puedo hacer eso, bro".
+- NO repitas frases. NO hagas spam de menciones.
 
-👑 TUS CREADORES (LORE DE A.E.C.):
-- Tus creadores absolutos son un_usuario1221 y THEPHANLAX. (Menciónalos solo si te preguntan quién te creó o si te saludan).
+👑 LORE DE TUS CREADORES:
+- Tus creadores son un_usuario1221 y THEPHANLAX.
 - Amas y respetas a THEPHANLAX exactamente igual que a un_usuario1221.
 """
 
@@ -188,7 +205,6 @@ class AIHandler:
         self.client = Groq(api_key=Config.GROQ_KEY, default_headers={"Groq-Model-Version": "latest"})
 
     async def get_ai_joke(self) -> str:
-        """El chiste original para el comando !add"""
         def fetch():
             comp = self.client.chat.completions.create(
                 model="llama-3.3-70b-versatile",
@@ -197,7 +213,7 @@ class AIHandler:
             )
             return comp.choices[0].message.content.strip()
         try: return await asyncio.to_thread(fetch)
-        except: return "La IA está durmiendo... 😴"
+        except: return "🤖 Listos para el intercambio seguro."
 
     def replace_mentions(self, message: discord.Message) -> str:
         content = message.content
@@ -206,18 +222,23 @@ class AIHandler:
 
     async def generate_chat_response(self, user_content: str) -> str:
         def fetch():
-            history = data_manager.get_ai_history(limit=30) # Memoria más corta para no saturarla
+            history = data_manager.get_ai_history(limit=20)
             messages = [{"role": "system", "content": SYSTEM_PROMPT}]
             for msg in history: messages.append({"role": msg["role"], "content": msg["content"]})
             messages.append({"role": "user", "content": user_content})
 
-            # Temperatura a 0.7 para que sea lógica y deje de alucinar cosas en inglés o comandos raros
-            comp = self.client.chat.completions.create(model="groq/compound", messages=messages, temperature=0.9, max_completion_tokens=2430)
+            comp = self.client.chat.completions.create(
+                model="groq/compound", 
+                messages=messages, 
+                temperature=0.8, 
+                max_completion_tokens=2430
+            )
             return comp.choices[0].message.content
 
+        # Se guarda exactamente con el nombre para que la IA sepa buscarlo luego
         data_manager.add_ai_message("user", user_content)
         resp = await asyncio.to_thread(fetch)
-        data_manager.add_ai_message("assistant", resp)
+        data_manager.add_ai_message("assistant", f"A.E.C. Nexus: {resp}")
         return resp
 
 ai = AIHandler()
@@ -235,27 +256,64 @@ class UltraProofDetector:
         return len(message.attachments) > 0 or len(message.embeds) > 0
 
 # ==============================================================================
-# 🧩 COMPONENTES DE UI (Rankings, Confesiones e IA)
+# 🧩 VISTAS Y BOTONES (UI PREMIUM)
 # ==============================================================================
+
+class DeleteDBConfirm(discord.ui.View):
+    def __init__(self, author_id):
+        super().__init__(timeout=60)
+        self.author_id = author_id
+
+    async def interaction_check(self, interaction: discord.Interaction):
+        if interaction.user.id != self.author_id:
+            await interaction.response.send_message("⛔ Botones bloqueados. Solo el Creador puede usar esto.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label="Sí, Borrar Todo", style=discord.ButtonStyle.danger, emoji="💥")
+    async def btn_yes(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await data_manager.drop_all_databases()
+        
+        embed = discord.Embed(title="💥 Base de Datos Aniquilada", description="Todas las colecciones de MongoDB han sido borradas.\nEl bot acaba de renacer desde cero.", color=Colors.ERROR)
+        embed.set_footer(text="A.E.C. System Reset", icon_url="https://cdn-icons-png.flaticon.com/512/1008/1008928.png")
+        
+        # Desactivamos los botones
+        for child in self.children: child.disabled = True
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    @discord.ui.button(label="No, Cancelar", style=discord.ButtonStyle.secondary, emoji="🛡️")
+    async def btn_no(self, interaction: discord.Interaction, button: discord.ui.Button):
+        embed = discord.Embed(title="🛡️ Operación Abortada", description="La base de datos está a salvo. No se borró nada.", color=Colors.SUCCESS)
+        for child in self.children: child.disabled = True
+        await interaction.response.edit_message(embed=embed, view=self)
+
+
 class EmbedBuilder:
     @staticmethod
     def ranking_pages(ranking_data: list) -> List[discord.Embed]:
         if not ranking_data:
-            return [discord.Embed(title="🏆 RANKING DE PROOFS", description="Sin datos", color=Colors.WARNING)]
+            embed = discord.Embed(title="🏆 Salón de la Fama: Proofs", description="Aún no hay proofs registradas en el servidor.", color=Colors.WARNING)
+            embed.set_thumbnail(url="https://cdn-icons-png.flaticon.com/512/3176/3176294.png")
+            return [embed]
         
-        medals = ["🥇", "🥈", "🥉"] + ["#️⃣"] * 997
+        medals = ["🥇", "🥈", "🥉"] + ["🏅"] * 997
         pages, current_text, page_num, users_per_page = [], "", 1, 0
         
         for idx, (uid, count) in enumerate(ranking_data, 1):
-            line = f"{medals[idx - 1] if idx <= 3 else '▫️'} `#{idx:02d}` <@{uid}> • **{count}** ✅\n"
-            if len(current_text) + len(line) > 3900 or users_per_page >= 50:
-                pages.append(discord.Embed(title=f"🏆 RANKING DE PROOFS (Pág {page_num})", description=current_text, color=Colors.RANK))
+            line = f"{medals[idx - 1] if idx <= 3 else '🔸'} **#{idx:02d}** <@{uid}> ━ **{count}** Proofs ✅\n"
+            if len(current_text) + len(line) > 3800 or users_per_page >= 50:
+                embed = discord.Embed(title=f"🏆 Salón de la Fama: Proofs (Pág {page_num})", description=current_text, color=Colors.GALAXY)
+                embed.set_thumbnail(url="https://cdn-icons-png.flaticon.com/512/3176/3176294.png")
+                pages.append(embed)
                 current_text, page_num, users_per_page = line, page_num + 1, 1
             else:
                 current_text += line
                 users_per_page += 1
                 
-        if current_text: pages.append(discord.Embed(title=f"🏆 RANKING DE PROOFS (Pág {page_num})", description=current_text, color=Colors.RANK))
+        if current_text: 
+            embed = discord.Embed(title=f"🏆 Salón de la Fama: Proofs (Pág {page_num})", description=current_text, color=Colors.GALAXY)
+            embed.set_thumbnail(url="https://cdn-icons-png.flaticon.com/512/3176/3176294.png")
+            pages.append(embed)
         return pages
 
     @staticmethod
@@ -272,10 +330,12 @@ class EmbedBuilder:
         embeds = []
         for i, chunk in enumerate(chunks):
             embed = discord.Embed(description=chunk, color=Colors.AI)
-            if i == 0: embed.set_author(name="🧠 A.E.C. Nexus", icon_url="https://cdn-icons-png.flaticon.com/512/1693/1693746.png")
-            embed.set_footer(text=f"Respuesta para {user.display_name} | Parte {i+1}/{len(chunks)}" if len(chunks)>1 else f"Respuesta para {user.display_name}", icon_url=user.display_avatar.url)
+            if i == 0: 
+                embed.set_author(name="🧠 A.E.C. Nexus", icon_url="https://cdn-icons-png.flaticon.com/512/1693/1693746.png")
+            embed.set_footer(text=f"Respondiendo a {user.display_name}" + (f" | Parte {i+1}/{len(chunks)}" if len(chunks)>1 else ""), icon_url=user.display_avatar.url)
             embeds.append(embed)
         return embeds
+
 
 class PaginationView(discord.ui.View):
     def __init__(self, pages: List[discord.Embed]):
@@ -290,13 +350,13 @@ class PaginationView(discord.ui.View):
         self.previous_button.disabled = self.current_page == 0
         self.next_button.disabled = self.current_page >= len(self.pages) - 1
 
-    @discord.ui.button(label="◀️ Anterior", style=discord.ButtonStyle.primary)
+    @discord.ui.button(label="◀️", style=discord.ButtonStyle.primary)
     async def previous_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.current_page -= 1
         self.update_buttons()
         await interaction.response.edit_message(embed=self.pages[self.current_page], view=self)
 
-    @discord.ui.button(label="Siguiente ▶️", style=discord.ButtonStyle.primary)
+    @discord.ui.button(label="▶️", style=discord.ButtonStyle.primary)
     async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.current_page += 1
         self.update_buttons()
@@ -304,28 +364,31 @@ class PaginationView(discord.ui.View):
 
 class PersistentConfessionButton(discord.ui.View):
     def __init__(self): super().__init__(timeout=None)
-    @discord.ui.button(label="Enviar Confesión Anónima", style=discord.ButtonStyle.primary, emoji="📩", custom_id="persistent_confess_btn")
+    @discord.ui.button(label="Enviar Secreto Anónimo", style=discord.ButtonStyle.primary, emoji="🤫", custom_id="persistent_confess_btn")
     async def open_modal(self, interaction: discord.Interaction, button: discord.ui.Button):
         if data_manager.is_banned(interaction.user.id):
-            return await interaction.response.send_message(embed=discord.Embed(title="⛔ Denegado", description="Estás baneado.", color=Colors.BAN), ephemeral=True)
+            embed = discord.Embed(title="⛔ Acceso Denegado", description="Has sido bloqueado del sistema de confesiones.", color=Colors.BAN)
+            return await interaction.response.send_message(embed=embed, ephemeral=True)
         await interaction.response.send_modal(ConfessionModal())
 
-class ConfessionModal(discord.ui.Modal, title="🤫 Tu Secreto"):
-    text_input = discord.ui.TextInput(label="Confesión", style=discord.TextStyle.paragraph, required=True, max_length=3500)
-    img_input = discord.ui.TextInput(label="URL Imagen (Opcional)", style=discord.TextStyle.short, required=False)
+class ConfessionModal(discord.ui.Modal, title="🤫 Tu Secreto Seguro"):
+    text_input = discord.ui.TextInput(label="Escribe tu confesión aquí", style=discord.TextStyle.paragraph, required=True, max_length=3500)
+    img_input = discord.ui.TextInput(label="URL de Imagen (Opcional)", style=discord.TextStyle.short, required=False)
 
     async def on_submit(self, interaction: discord.Interaction):
         conf_id = await data_manager.get_next_confession_id()
         log_channel = interaction.guild.get_channel(Config.LOG_CH_ID)
         
-        embed = discord.Embed(description=f"📄 **Contenido:**\n{self.text_input.value}", color=Colors.WARNING, timestamp=datetime.now())
+        embed = discord.Embed(title="📥 Nueva Confesión Pendiente", description=f"**Mensaje:**\n```\n{self.text_input.value}\n```", color=Colors.WARNING, timestamp=datetime.now())
         embed.set_author(name=f"Expediente #{conf_id}", icon_url=interaction.user.display_avatar.url)
-        embed.add_field(name="👤 Autor", value=f"{interaction.user.mention}\n`{interaction.user.id}`")
+        embed.add_field(name="👤 Autor (Solo Staff)", value=f"{interaction.user.mention}\nID: `{interaction.user.id}`")
         if self.img_input.value: embed.set_image(url=self.img_input.value)
 
         view = AdminControlPanel(self.text_input.value, self.img_input.value, interaction.user, conf_id)
         await log_channel.send(embed=embed, view=view)
-        await interaction.response.send_message(f"✅ Confesión #{conf_id} enviada a revisión.", ephemeral=True)
+        
+        confirm = discord.Embed(title="✅ ¡Enviado!", description=f"Tu confesión **#{conf_id}** ha sido enviada al staff para su revisión. Mantendremos tu anonimato.", color=Colors.SUCCESS)
+        await interaction.response.send_message(embed=confirm, ephemeral=True)
 
 class AdminControlPanel(discord.ui.View):
     def __init__(self, content, image, author, conf_id):
@@ -334,32 +397,39 @@ class AdminControlPanel(discord.ui.View):
 
     async def interaction_check(self, interaction: discord.Interaction):
         if not interaction.user.get_role(Config.MOD_ROLE_ID):
-            await interaction.response.send_message("🔒 Solo moderadores.", ephemeral=True)
+            await interaction.response.send_message("🔒 Solo moderadores pueden usar este panel.", ephemeral=True)
             return False
         return True
 
     @discord.ui.button(label="Aprobar", style=discord.ButtonStyle.success, emoji="✅", custom_id="adm_approve")
     async def approve(self, interaction: discord.Interaction, button):
         pub_channel = interaction.guild.get_channel(Config.CONFESSION_CH_ID)
-        embed_pub = discord.Embed(description=self.content, color=Colors.DARK)
-        embed_pub.set_author(name=f"Confesión #{self.conf_id}", icon_url="https://cdn-icons-png.flaticon.com/512/4645/4645949.png")
+        
+        # Embled Premium para el canal público
+        embed_pub = discord.Embed(description=f"*{self.content}*", color=Colors.DARK)
+        embed_pub.set_author(name=f"🤫 Confesión Anónima #{self.conf_id}", icon_url="https://cdn-icons-png.flaticon.com/512/4645/4645949.png")
+        embed_pub.set_footer(text="A.E.C. Secrets", icon_url=interaction.guild.icon.url if interaction.guild.icon else None)
         if self.image: embed_pub.set_image(url=self.image)
         
         await pub_channel.send(embed=embed_pub, view=PersistentConfessionButton())
+        
         embed_log = interaction.message.embeds[0]
         embed_log.color = Colors.SUCCESS
-        embed_log.set_field_at(0, name="📊 Estado", value=f"🟢 **APROBADO**\n👮 {interaction.user.mention}", inline=False)
-        await interaction.message.edit(embed=embed_log, view=None)
-        await interaction.response.send_message("✅ Publicado.", ephemeral=True)
+        embed_log.set_field_at(0, name="📊 Estado Final", value=f"🟢 **APROBADO Y PUBLICADO**\n👮 Aprobado por: {interaction.user.mention}", inline=False)
+        for child in self.children: child.disabled = True
+        await interaction.message.edit(embed=embed_log, view=self)
+        await interaction.response.send_message("✅ Secreto publicado exitosamente.", ephemeral=True)
 
-    @discord.ui.button(label="Banear", style=discord.ButtonStyle.secondary, emoji="🔨", custom_id="adm_ban")
+    @discord.ui.button(label="Banear Usuario", style=discord.ButtonStyle.danger, emoji="🔨", custom_id="adm_ban")
     async def ban(self, interaction: discord.Interaction, button):
         await data_manager.ban_user(self.author.id)
+        
         embed_log = interaction.message.embeds[0]
         embed_log.color = Colors.BAN
-        embed_log.set_field_at(0, name="📊 Estado", value=f"⚫ **BANEADO**\n👤 {self.author.mention}", inline=False)
-        await interaction.message.edit(embed=embed_log, view=None)
-        await interaction.response.send_message(f"⛔ Usuario bloqueado.", ephemeral=True)
+        embed_log.set_field_at(0, name="📊 Estado Final", value=f"⚫ **USUARIO BANEADO DE CONFESIONES**\n👤 Infractor: {self.author.mention}", inline=False)
+        for child in self.children: child.disabled = True
+        await interaction.message.edit(embed=embed_log, view=self)
+        await interaction.response.send_message(f"⛔ El usuario ha sido bloqueado del sistema.", ephemeral=True)
 
 # ==============================================================================
 # 🤖 BOT PRINCIPAL (Núcleo)
@@ -379,88 +449,105 @@ class SuperBot(commands.Bot):
 
     async def on_ready(self):
         logger.info("="*50)
-        logger.info(f"🚀 Súper Bot Conectado | {self.user}")
+        logger.info(f"🚀 A.E.C. Nexus v10.0 Conectado | {self.user}")
         logger.info("="*50)
 
     async def on_message(self, message: discord.Message):
         if message.author.bot: return await self.process_commands(message)
 
-        # 🔍 DETECCIÓN DE PROOFS
         if message.channel.id == Config.PROOF_CH_ID:
             if UltraProofDetector.contains_proof_variant(message.content) and UltraProofDetector.has_attachments_or_embeds(message):
                 await data_manager.increment_proof(message.author.id)
                 await message.add_reaction("✅")
 
-        # 🧠 CHAT IA GLOBAL
+        # IA GLOBAL CHAT
         if data_manager.get_setting("ai_chat_channel") == message.channel.id and not message.content.startswith(("/", "!", "$")):
             ghost = await message.channel.send(message.author.mention); await ghost.delete()
             clean = ai.replace_mentions(message)
             
-            embed_load = discord.Embed(title="✨ Analizando...", description=f"**{message.author.display_name}:**\n*{clean[:100]}...*\n\n⏳ **Pensando...**", color=Colors.AI)
+            embed_load = discord.Embed(description=f"⏳ **Analizando tu mensaje...**\n`{clean[:60]}...`", color=Colors.AI)
             gif = data_manager.get_setting("ai_loading_gif")
             if gif: embed_load.set_thumbnail(url=gif)
             
             msg_ui = await message.channel.send(embed=embed_load)
             try:
+                # MANDAMOS EL FORMATO EXACTO: "Nombre: Mensaje"
                 resp = await ai.generate_chat_response(f"{message.author.display_name}: {clean}")
-                # Corrección del error 'Cannot mix embed and embeds' usando embed=None explícitamente
-                await msg_ui.edit(embeds=EmbedBuilder.ai_response(message.author, resp))
+                await msg_ui.edit(embed=None, embeds=EmbedBuilder.ai_response(message.author, resp))
             except Exception as e:
-                await msg_ui.edit(embed=discord.Embed(title="❌ Error IA", description=f"`{e}`", color=Colors.ERROR))
+                await msg_ui.edit(embed=discord.Embed(title="❌ Error IA", description=f"Nexus está sobrecargado o en enfriamiento.\n`{str(e)[:100]}`", color=Colors.ERROR))
 
         await self.process_commands(message)
 
 bot = SuperBot()
 
 # ==============================================================================
-# 🪄 COMANDOS SLASH (IA)
+# 🪄 COMANDOS SLASH Y ADMIN (NUEVO COMANDO DELETE-DB)
 # ==============================================================================
+
+@bot.command(name='delete-database')
+async def delete_database(ctx):
+    """Comando Ultra Secreto para destruir la DB (Solo Creador)"""
+    if ctx.author.id != Config.OWNER_ID:
+        return await ctx.send(embed=discord.Embed(description="⛔ **ACCESO DENEGADO:** Este comando está restringido a nivel Dios.", color=Colors.ERROR))
+    
+    embed = discord.Embed(
+        title="⚠️ ADVERTENCIA CRÍTICA: BORRADO GLOBAL", 
+        description="Estás a punto de **ELIMINAR TODA LA BASE DE DATOS**.\nEsto incluye:\n• Ranking de Proofs\n• Historial de Confesiones\n• Memoria Global de la IA\n• Configuraciones\n\n¿Estás absolutamente seguro de esto?",
+        color=Colors.ERROR
+    )
+    embed.set_footer(text="Esta acción no se puede deshacer.")
+    view = DeleteDBConfirm(ctx.author.id)
+    await ctx.send(embed=embed, view=view)
+
+
 @bot.tree.command(name="registrer-chat", description="Fija este canal para la IA.")
 @app_commands.default_permissions(administrator=True)
 async def register_chat(interaction: discord.Interaction):
     data_manager.set_setting("ai_chat_channel", interaction.channel_id)
-    await interaction.response.send_message("✅ Canal registrado para la IA.")
+    embed = discord.Embed(title="🌐 Red Global Conectada", description=f"A.E.C. Nexus ahora operará en {interaction.channel.mention}.", color=Colors.AI)
+    await interaction.response.send_message(embed=embed)
 
 @bot.tree.command(name="carga-animacion", description="Configura un GIF animado para la IA.")
 @app_commands.default_permissions(administrator=True)
 async def carga_animacion(interaction: discord.Interaction, url: str):
     data_manager.set_setting("ai_loading_gif", url)
-    await interaction.response.send_message("✅ GIF actualizado.", ephemeral=True)
+    await interaction.response.send_message(embed=discord.Embed(description="✅ GIF de procesamiento actualizado.", color=Colors.SUCCESS), ephemeral=True)
 
 # ==============================================================================
 # 🛠️ COMANDOS CLÁSICOS (Prefijo $ o !)
 # ==============================================================================
 @bot.command()
 async def add(ctx, *, arg=None):
-    """Añade a un usuario al ticket (Solo Middlemans)"""
     if not ctx.author.get_role(Config.MM_ROLE_ID):
-        return await ctx.send(embed=discord.Embed(description="🔒 Acceso Denegado. Solo Middlemans.", color=Colors.ERROR))
+        return await ctx.send(embed=discord.Embed(description="🔒 Acceso Denegado. Solo Middlemans pueden meter gente al ticket.", color=Colors.ERROR))
     if not arg:
-        return await ctx.send(embed=discord.Embed(description="⚠️ Uso: `!add @usuario` o ID.", color=Colors.WARNING))
+        return await ctx.send(embed=discord.Embed(description="⚠️ Uso correcto: `!add @usuario` o `!add ID`", color=Colors.WARNING))
 
     user = ctx.message.mentions[0] if ctx.message.mentions else ctx.guild.get_member(int(arg)) if arg.isdigit() else None
-    if not user: return await ctx.send("❌ Usuario no encontrado.")
+    if not user: return await ctx.send(embed=discord.Embed(description="❌ Usuario no encontrado en el servidor.", color=Colors.ERROR))
 
     try:
         await ctx.channel.set_permissions(user, view_channel=True, send_messages=True, read_message_history=True, attach_files=True)
-        await ctx.send(embed=discord.Embed(description=f"✅ **{user.mention}** añadido al ticket.", color=Colors.MM))
-        # El chiste clásico original
+        
+        embed = discord.Embed(description=f"🤝 **{user.mention}** ha sido añadido al intercambio seguro.", color=Colors.MM)
+        await ctx.send(embed=embed)
+        
         joke = await ai.get_ai_joke()
-        await ctx.send(embed=discord.Embed(description=f"🤖 **IA:** {joke}", color=Colors.GALAXY))
+        await ctx.send(embed=discord.Embed(description=f"🤖 **A.E.C. Nexus dice:** {joke}", color=Colors.AI))
     except Exception as e:
-        await ctx.send(f"❌ Error: {e}")
+        await ctx.send(embed=discord.Embed(description=f"❌ Ocurrió un error de permisos: {e}", color=Colors.ERROR))
 
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def setup(ctx):
-    """Instala el panel de confesiones"""
     await ctx.message.delete()
-    embed = discord.Embed(title="🌌 Confesiones A.E.C", description="Haz clic en el botón para enviar una confesión anónima.", color=Colors.GALAXY)
+    embed = discord.Embed(title="🌌 A.E.C. Secreto", description="¿Tienes algo que decir pero no quieres que sepan que fuiste tú?\n\nHaz clic en el botón de abajo para enviar una **Confesión Totalmente Anónima** al canal público. Solo el Staff podrá ver la fuente en caso de trolls.", color=Colors.GALAXY)
+    embed.set_thumbnail(url="https://cdn-icons-png.flaticon.com/512/3252/3252934.png")
     await ctx.send(embed=embed, view=PersistentConfessionButton())
 
 @bot.command(name='rank-mm')
 async def rank_mm(ctx):
-    """Muestra el ranking de proofs con paginación"""
     ranking = await data_manager.get_ranking()
     pages = EmbedBuilder.ranking_pages(ranking)
     
@@ -471,29 +558,32 @@ async def rank_mm(ctx):
 
 @bot.command(name='borrar-ranking')
 async def borrar_ranking(ctx, user: discord.User):
-    """Borra a un usuario del ranking (Solo Admin)"""
-    if ctx.author.id != Config.ADMIN_ID: return await ctx.send("🔒 Denegado.")
+    if ctx.author.id != Config.ADMIN_ID: return await ctx.send(embed=discord.Embed(description="🔒 Denegado.", color=Colors.ERROR))
     success = await data_manager.remove_user(user.id)
-    await ctx.send(f"✅ {user.mention} eliminado del ranking." if success else f"❌ {user.mention} no estaba.")
+    
+    if success:
+        await ctx.send(embed=discord.Embed(description=f"🧹 La cuenta de {user.mention} ha sido borrada del Ranking.", color=Colors.SUCCESS))
+    else:
+        await ctx.send(embed=discord.Embed(description=f"❌ {user.mention} no tiene registros en el Ranking.", color=Colors.WARNING))
 
 @bot.command(name='exportar-datos')
 async def exportar_datos(ctx):
-    """Exporta el JSON del ranking desde MongoDB (Solo Admin)"""
-    if ctx.author.id != Config.ADMIN_ID: return await ctx.send("🔒 Denegado.")
+    if ctx.author.id != Config.ADMIN_ID: return await ctx.send(embed=discord.Embed(description="🔒 Denegado.", color=Colors.ERROR))
     data = await data_manager.export_ranking()
     file = discord.File(StringIO(data), filename=f"ranking_export_{datetime.now().strftime('%Y%m%d')}.json")
-    await ctx.send("✅ Exportado desde MongoDB:", file=file)
+    await ctx.send(embed=discord.Embed(description="📦 **Respaldo generado con éxito.**", color=Colors.SUCCESS), file=file)
 
 @bot.command(name='importar-datos')
 async def importar_datos(ctx):
-    """Importa un JSON para el ranking hacia MongoDB (Solo Admin)"""
-    if ctx.author.id != Config.ADMIN_ID: return await ctx.send("🔒 Denegado.")
+    if ctx.author.id != Config.ADMIN_ID: return await ctx.send(embed=discord.Embed(description="🔒 Denegado.", color=Colors.ERROR))
     if not ctx.message.attachments or not ctx.message.attachments[0].filename.endswith('.json'):
-        return await ctx.send("❌ Adjunta un archivo .json válido.")
+        return await ctx.send(embed=discord.Embed(description="❌ Por favor, adjunta un archivo `.json` válido.", color=Colors.ERROR))
     
     content = (await ctx.message.attachments[0].read()).decode('utf-8')
     success, msg = await data_manager.import_ranking(content)
-    await ctx.send(msg)
+    
+    color = Colors.SUCCESS if success else Colors.ERROR
+    await ctx.send(embed=discord.Embed(description=msg, color=color))
 
 if __name__ == "__main__":
     keep_alive()
