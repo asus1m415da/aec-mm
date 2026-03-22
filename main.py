@@ -378,7 +378,7 @@ class SuperBot(commands.Bot):
             msg_ui = await message.channel.send(embed=embed_load)
             try:
                 resp = await ai.generate_chat_response(f"{message.author.display_name}: {clean}")
-                await msg_ui.edit(embed=None, embeds=EmbedBuilder.ai_response(message.author, resp))
+                await msg_ui.edit(embeds=EmbedBuilder.ai_response(message.author, resp))
             except Exception as e:
                 await msg_ui.edit(embed=discord.Embed(title="❌ Error IA", description=f"`{e}`", color=Colors.ERROR))
 
