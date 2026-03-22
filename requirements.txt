@@ -4,5 +4,5 @@ fake-useragent
 flask
 python-dotenv
 groq
-pymongo
+pymongo[srv]
 dnspython
